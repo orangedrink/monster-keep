@@ -206,7 +206,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 		this.clearButton = this.add.text(
 			this.runButton.x,
-			this.runButton.y + 60,
+			this.runButton.y + 40,
 			'DEL ⌫',
 			{ ...buttonStyle, backgroundColor: '#ff6388', color: '#fff' }
 		).setInteractive({ useHandCursor: true })
