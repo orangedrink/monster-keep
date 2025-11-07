@@ -1,0 +1,4 @@
+monster code editor
+an input is supplied based on positions of switches in the keep
+player uses bitwise operators, shift/unshift and mov to manipulate the unput and move a 4 bit value into the monster byte
+interface steps through code execution and displays output before creatingthe monster and sidescroller scene
