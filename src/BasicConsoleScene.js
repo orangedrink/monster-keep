@@ -1,25 +1,28 @@
 import Phaser from 'phaser'
 
-const AVAILABLE_COMMANDS = ['CLEAR', 'POKE', 'SHIFT', 'ROLL', 'PRINT', 'GOTO', 'VARIABLES']
+const AVAILABLE_COMMANDS = ['POKE', 'SHIFT', 'RETURN', 'GOTO', 'VARIABLES', 'TOGGLE']
 const VARIABLE_NAMES = ['A', 'B', 'C', 'D']
 
-const BIT_COUNT = 4
+const BIT_COUNT = 8
 const LINE_NUMBER_VALUES = Array.from({ length: 20 }, (_, idx) => (idx + 1) * 10)
 const GOTO_ITERATION_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 const PROGRAM_STORAGE_KEY = 'basic-console-program'
 
 const TARGET_OUTPUTS = [
-	'1010',
-	'1111',
-	'0101',
-	'0000',
-	'1100',
-	'0011'
+	'10101010',
+	'11110000',
+	'01010101',
+	'00000000',
+	'11001100',
+	'00110011'
 ]
 
-const BIT_INDEX_VALUES = [0, 1, 2, 3]
+const BIT_INDEX_VALUES = Array.from({ length: BIT_COUNT }, (_, idx) => idx)
 const BIT_VALUE_VALUES = [0, 1]
 const DIRECTION_VALUES = ['LEFT', 'RIGHT']
+
+const normalizeCommandKey = (key) => (key === 'PRINT' ? 'RETURN' : key)
+const normalizeCommandList = (list = []) => list.map((key) => normalizeCommandKey(key))
 
 const withVariableOptions = (values) => [...values, ...VARIABLE_NAMES]
 const BIT_INDEX_PARAM_VALUES = withVariableOptions(BIT_INDEX_VALUES)
@@ -57,7 +60,7 @@ const COMMANDS = [{
 		values: DIRECTION_VALUES,
 	}],
 }, {
-	key: 'PRINT',
+	key: 'RETURN',
 	params: [],
 }, {
 	key: 'GOTO',
@@ -91,6 +94,13 @@ const VARIABLE_COMMANDS = [{
 		name: 'var',
 		values: VARIABLE_NAMES,
 	}],
+}, {
+	key: 'TOGGLE',
+	requiresKey: 'TOGGLE',
+	params: [{
+		name: 'var',
+		values: VARIABLE_NAMES,
+	}],
 }]
 
 export default class BasicConsoleScene extends Phaser.Scene {
@@ -100,7 +110,8 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 	init(data = {}) {
 		this.gameData = data;
-		this.gameData.availableCommands = this.gameData.availableCommands || AVAILABLE_COMMANDS
+		const providedCommands = this.gameData.availableCommands || AVAILABLE_COMMANDS
+		this.gameData.availableCommands = normalizeCommandList(providedCommands)
 		this.availableCommandKeys = this.gameData.availableCommands
 		this.hasVariablePalette = this.availableCommandKeys.some((cmd) => cmd.toLowerCase() === 'variables')
 		this.memoryLimit = this.gameData.memoryLimit || 8
@@ -111,7 +122,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	create() {
-		this.availableCommandKeys = this.availableCommandKeys || AVAILABLE_COMMANDS
+		this.availableCommandKeys = normalizeCommandList(this.availableCommandKeys || AVAILABLE_COMMANDS)
 		if (typeof this.hasVariablePalette === 'undefined') {
 			this.hasVariablePalette = this.availableCommandKeys.some((cmd) => cmd.toLowerCase() === 'variables')
 		}
@@ -148,7 +159,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.sound.add(this.typingSoundKey, { volume: 0.8 })
 		}
 
-		this.updateStatus(`Goal: PRINT ${this.targetBits}`)
+		this.updateStatus(`Goal: RETURN ${this.targetBits}`)
 		this.updateCodeText()
 	}
 
@@ -276,7 +287,8 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		if (!this.hasVariablePalette) return
 		const screenBounds = this.screen.getBounds()
 		const columnLeft = Math.max(20, screenBounds.left - 280)
-		const { states } = this.buildCommandPanel(columnLeft, 140, 'Variables', VARIABLE_COMMANDS)
+		const variableCommands = VARIABLE_COMMANDS.filter((cmd) => !cmd.requiresKey || this.availableCommandKeys.includes(cmd.requiresKey))
+		const { states } = this.buildCommandPanel(columnLeft, 140, 'Variables', variableCommands)
 		this.variableCommandStates = states
 	}
 
@@ -621,14 +633,14 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const removedText = removedEntry
 			? `${(removedIndex + 1) * 10}. ${this.formatCommand(removedEntry)}`
 			: (this.codeLines[removedIndex]?.text || '')
-		this.program.splice(removedIndex, 1)
-		this.pendingDeleteNextSelection = this.program.length
-			? Math.max(Math.min(removedIndex - 1, this.program.length - 1), 0)
-			: -1
-		if (this.program.length === 0) {
-			this.outputText.setText('')
-			this.updateStatus(`Goal: PRINT ${this.targetBits}`)
-		}
+			this.program.splice(removedIndex, 1)
+			this.pendingDeleteNextSelection = this.program.length
+				? Math.max(Math.min(removedIndex - 1, this.program.length - 1), 0)
+				: -1
+			if (this.program.length === 0) {
+				this.outputText.setText('')
+				this.updateStatus(`Goal: RETURN ${this.targetBits}`)
+			}
 		if (removedText) {
 			this.selectedLine = -1
 			this.deleteCursorActive = true
@@ -958,7 +970,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		return entries
 			.filter((entry) => entry && typeof entry.key === 'string' && Array.isArray(entry.values))
 			.map((entry) => ({
-				key: entry.key,
+				key: normalizeCommandKey(entry.key),
 				values: [...entry.values],
 			}))
 	}
@@ -1255,6 +1267,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 				case 'ROLL':
 					error = this.shiftBits(bits, entry.values[0], true, pointer)
 					break
+				case 'RETURN':
 				case 'PRINT':
 					output = bits.join('')
 					break
@@ -1264,6 +1277,9 @@ export default class BasicConsoleScene extends Phaser.Scene {
 				case 'INC':
 				case 'DEC':
 					error = this.adjustVariable(entry.key, variables, entry.values[0], pointer)
+					break
+				case 'TOGGLE':
+					error = this.toggleVariable(variables, entry.values[0], pointer)
 					break
 				case 'GOTO': {
 					const lineNumber = entry.values[0]
@@ -1304,7 +1320,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		}
 
 		if (!output) {
-			this.updateStatus('No PRINT command executed.', 0xffae00)
+			this.updateStatus('No RETURN command executed.', 0xffae00)
 			return
 		}
 
@@ -1386,6 +1402,21 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			return `Variable "${name}" must be defined with LET before ${op} (line ${(lineIndex + 1) * 10})`
 		}
 		variables[name] += op === 'INC' ? 1 : -1
+		return null
+	}
+
+	toggleVariable(variables, name, lineIndex) {
+		if (!this.isVariableName(name)) {
+			return `Invalid variable "${name}" (line ${(lineIndex + 1) * 10})`
+		}
+		if (typeof variables[name] === 'undefined') {
+			return `Variable "${name}" must be defined with LET before TOGGLE (line ${(lineIndex + 1) * 10})`
+		}
+		const currentValue = variables[name]
+		if (currentValue !== 0 && currentValue !== 1) {
+			return `Variable "${name}" must be 0 or 1 to TOGGLE (line ${(lineIndex + 1) * 10})`
+		}
+		variables[name] = currentValue === 0 ? 1 : 0
 		return null
 	}
 
