@@ -124,9 +124,11 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.draggedLineOriginalIndex = null
 		this.dragTargetIndex = null
 		this.pendingAnimateLineIndex = null
-		this.pendingDeleteLines = []
 		this.pendingDeleteNextSelection = null
 		this.deleteCursorActive = false
+		this.isDeleteAnimating = false
+		this.deletePlaceholderIndex = null
+		this.deletePlaceholderText = null
 		this.highlightActive = false
 		this.dragIndicatorActive = false
 		this.dragStartPointer = null
@@ -220,7 +222,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			fontSize: 14,
 			color: '#111',
 			backgroundColor: '#00ff9c',
-			padding: { x: 14, y: 8 }
+			padding: { x: 14, y: 8 },
 		}
 		this.add.text(
 			20,
@@ -232,33 +234,33 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.runButton = this.add.text(
 			this.outputLabel.x - 350,
 			screenBounds.top + 180,
-			'RUN  ⏎',
+			'RUN ⏎',
 			buttonStyle
 		).setInteractive({ useHandCursor: true })
 		this.runButton.on('pointerdown', () => this.runProgram())
 
-		const buttonSpacing = 40
+		const buttonSpacing = 10
 		this.clearButton = this.add.text(
-			this.runButton.x,
-			this.runButton.y + buttonSpacing,
-			'DEL  ⌫',
+			this.runButton.x + this.runButton.width + buttonSpacing,
+			this.runButton.y,
+			'DEL ⌫',
 			{ ...buttonStyle, backgroundColor: '#ff6388', color: '#fff' }
 		).setInteractive({ useHandCursor: true })
 		this.clearButton.on('pointerdown', () => this.deleteSelectedLine())
 
 		this.saveButton = this.add.text(
-			this.runButton.x + this.runButton.width + buttonSpacing,
-			this.runButton.y,
+			this.runButton.x,
+			this.runButton.y + this.runButton.height + buttonSpacing,
 			'SAVE ⎘',
-			{ ...buttonStyle, backgroundColor: '#2dd4bf', color: '#111' }
+			{ ...buttonStyle, color: '#111' }
 		).setInteractive({ useHandCursor: true })
 		this.saveButton.on('pointerdown', () => this.saveProgram())
 
 		this.loadButton = this.add.text(
-			this.saveButton.x,
-			this.saveButton.y + buttonSpacing,
+			this.saveButton.x + this.saveButton.width + buttonSpacing,
+			this.saveButton.y,
 			'LOAD ⎗',
-			{ ...buttonStyle, backgroundColor: '#4dabf7', color: '#111' }
+			{ ...buttonStyle, color: '#111' }
 		).setInteractive({ useHandCursor: true })
 		this.loadButton.on('pointerdown', () => this.loadProgram())
 	}
@@ -540,6 +542,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	deleteSelectedLine() {
 		if (this.selectedLine === -1 || !this.program.length) return
+		if (this.isDeleteAnimating) return
 		this.playTypingSound()
 		const removedIndex = this.selectedLine
 		const removedEntry = this.program[removedIndex]
@@ -555,18 +558,21 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.updateStatus(`Goal: PRINT ${this.targetBits}`)
 		}
 		if (removedText) {
-			this.queueDeleteAnimation(removedIndex, removedText)
 			this.selectedLine = -1
 			this.deleteCursorActive = true
+			this.isDeleteAnimating = true
+			this.deletePlaceholderIndex = removedIndex
 			this.updateCodeText()
+			this.animateLineDelete(removedIndex, removedText)
+			return
+		}
+
+		this.selectedLine = this.pendingDeleteNextSelection
+		this.updateCodeText()
+		if (this.selectedLine >= 0) {
+			this.selectLine(this.selectedLine, true)
 		} else {
-			this.selectedLine = this.pendingDeleteNextSelection
-			this.updateCodeText()
-			if (this.selectedLine >= 0) {
-				this.selectLine(this.selectedLine, true)
-			} else {
-				this.cursorBlock.setVisible(false)
-			}
+			this.cursorBlock.setVisible(false)
 		}
 	}
 
@@ -895,7 +901,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const sliceLength = Phaser.Math.FloatBetween(minSlice, Math.min(maxSlice, duration))
 		const maxStart = Math.max(0, duration - sliceLength)
 		const start = Phaser.Math.FloatBetween(0, maxStart)
-		const instance = this.sound.add(this.typingSoundKey, { volume: 0.8 })
+		const instance = this.sound.add(this.typingSoundKey, { volume: 0.6 })
 		instance.play({ seek: start })
 		this.time.delayedCall(sliceLength * 1000, () => {
 			instance.stop()
@@ -906,12 +912,16 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	updateCodeText() {
 		const animateIndex = this.pendingAnimateLineIndex
 		this.pendingAnimateLineIndex = null
-		const deleteQueue = this.pendingDeleteLines.slice()
-		this.pendingDeleteLines.length = 0
 		this.codeLines.forEach((line) => line.destroy())
 		this.codeLines = []
+		this.destroyDeletePlaceholder()
 
-		if (!this.program.length) {
+		const placeholderIndex = typeof this.deletePlaceholderIndex === 'number'
+			? this.deletePlaceholderIndex
+			: -1
+		const hasPlaceholder = placeholderIndex >= 0
+
+		if (!this.program.length && !hasPlaceholder) {
 			this.dragIndicator.setVisible(false)
 			const emptyText = this.add.text(
 				this.codeLineStartX,
@@ -925,12 +935,25 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			return
 		}
 
+		if (hasPlaceholder) {
+			this.deletePlaceholderText = this.createDeletePlaceholderDisplay(placeholderIndex)
+		}
+
+		if (!this.program.length) {
+			this.dragIndicator.setVisible(false)
+			this.selectedLine = -1
+			this.cursorBlock.setVisible(false)
+			return
+		}
+
 		const shouldAnimateIndex = typeof animateIndex === 'number' ? animateIndex : -1
 		this.program.forEach((entry, index) => {
+			const displaySlot = this.getDisplaySlotForIndex(index)
+			const lineNumber = this.getDisplayLineNumber(index)
 			const lineText = this.add.text(
 				this.codeLineStartX,
-				this.codeLineStartY + index * this.codeLineHeight,
-				`${(index + 1) * 10}. ${this.formatCommand(entry)}`,
+				this.codeLineStartY + displaySlot * this.codeLineHeight,
+				`${lineNumber}. ${this.formatCommand(entry)}`,
 				this.codeLineStyle
 			)
 			lineText.setInteractive({ useHandCursor: true })
@@ -948,16 +971,41 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		})
 		this.updateLineHighlight()
 		this.updateCursorPosition()
-		deleteQueue.forEach(({ index, text }) => this.animateLineDelete(index, text))
 	}
 
-	queueDeleteAnimation(index, text) {
-		if (!text) return
-		this.pendingDeleteLines = this.pendingDeleteLines || []
-		this.pendingDeleteLines.push({ index, text })
+	createDeletePlaceholderDisplay(index) {
+		const placeholder = this.add.text(
+			this.codeLineStartX,
+			this.codeLineStartY + index * this.codeLineHeight,
+			' ',
+			this.codeLineStyle
+		)
+		placeholder.setAlpha(0)
+		return placeholder
+	}
+
+	destroyDeletePlaceholder() {
+		if (this.deletePlaceholderText) {
+			this.deletePlaceholderText.destroy()
+			this.deletePlaceholderText = null
+		}
+	}
+
+	getDisplaySlotForIndex(index) {
+		if (typeof index !== 'number') return 0
+		if (typeof this.deletePlaceholderIndex !== 'number' || this.deletePlaceholderIndex < 0) {
+			return index
+		}
+		return index >= this.deletePlaceholderIndex ? index + 1 : index
+	}
+
+	getDisplayLineNumber(index) {
+		const slot = this.getDisplaySlotForIndex(index)
+		return (slot + 1) * 10
 	}
 
 	selectLine(index, shouldHighlight = false) {
+		if (this.isDeleteAnimating) return
 		if (!this.program.length) {
 			this.selectedLine = -1
 			this.cursorBlock.setVisible(false)
@@ -1000,7 +1048,8 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	animateLineReveal(lineText) {
 		if (!lineText || typeof lineText.programIndex === 'undefined') return
-		const fullText = `${(lineText.programIndex + 1) * 10}. ${this.formatCommand(this.program[lineText.programIndex])}`
+		const lineNumber = this.getDisplayLineNumber(lineText.programIndex)
+		const fullText = `${lineNumber}. ${this.formatCommand(this.program[lineText.programIndex])}`
 		lineText.setText('')
 		let charIndex = 0
 		const typingEvent = this.time.addEvent({
@@ -1022,14 +1071,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	animateLineDelete(index, text) {
 		if (!text) {
-			this.deleteCursorActive = false
-			const nextIndex = this.pendingDeleteNextSelection
-			this.pendingDeleteNextSelection = null
-					if (typeof nextIndex === 'number' && nextIndex >= 0) {
-						this.selectLine(nextIndex, true)
-					} else {
-						this.cursorBlock.setVisible(false)
-					}
+			this.handleDeleteAnimationComplete()
 			return
 		}
 		const lineY = this.codeLineStartY + index * this.codeLineHeight
@@ -1058,17 +1100,25 @@ export default class BasicConsoleScene extends Phaser.Scene {
 				if (remaining === 0) {
 					deleteEvent.remove()
 					overlay.destroy()
-					this.deleteCursorActive = false
-					const nextIndex = this.pendingDeleteNextSelection
-					this.pendingDeleteNextSelection = null
-					if (typeof nextIndex === 'number' && nextIndex >= 0) {
-						this.selectLine(nextIndex, true)
-					} else {
-						this.cursorBlock.setVisible(false)
-					}
+					this.handleDeleteAnimationComplete()
 				}
 			}
 		})
+	}
+
+	handleDeleteAnimationComplete() {
+		this.deleteCursorActive = false
+		const nextIndex = this.pendingDeleteNextSelection
+		this.pendingDeleteNextSelection = null
+		this.isDeleteAnimating = false
+		this.deletePlaceholderIndex = null
+		this.destroyDeletePlaceholder()
+		this.updateCodeText()
+		if (typeof nextIndex === 'number' && nextIndex >= 0) {
+			this.selectLine(Math.min(nextIndex, this.program.length - 1), true)
+		} else {
+			this.cursorBlock.setVisible(false)
+		}
 	}
 
 	formatCommand(entry) {
