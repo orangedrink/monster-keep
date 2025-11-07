@@ -127,8 +127,11 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.pendingDeleteNextSelection = null
 		this.deleteCursorActive = false
 		this.isDeleteAnimating = false
+		this.isAddAnimationActive = false
+		this.activeAddAnimationIndex = null
 		this.deletePlaceholderIndex = null
 		this.deletePlaceholderText = null
+		this.topButtonTargets = []
 		this.highlightActive = false
 		this.dragIndicatorActive = false
 		this.dragStartPointer = null
@@ -160,7 +163,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	createTextAreas() {
 		const padding = 30
-		const fontConfig = { fontFamily: 'Silkscreen', fontSize: 18, color: '#00ff9c', align: 'left' }
+		const fontConfig = { fontFamily: 'Silkscreen', fontSize: 14, color: '#00ff9c', align: 'left' }
 		const { width } = this.scale
 		const screenBounds = this.screen.getBounds()
 
@@ -238,6 +241,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			buttonStyle
 		).setInteractive({ useHandCursor: true })
 		this.runButton.on('pointerdown', () => this.runProgram())
+		this.topButtonTargets.push(this.runButton)
 
 		const buttonSpacing = 10
 		this.clearButton = this.add.text(
@@ -247,6 +251,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			{ ...buttonStyle, backgroundColor: '#ff6388', color: '#fff' }
 		).setInteractive({ useHandCursor: true })
 		this.clearButton.on('pointerdown', () => this.deleteSelectedLine())
+		this.topButtonTargets.push(this.clearButton)
 
 		this.saveButton = this.add.text(
 			this.runButton.x,
@@ -255,6 +260,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			{ ...buttonStyle, color: '#111' }
 		).setInteractive({ useHandCursor: true })
 		this.saveButton.on('pointerdown', () => this.saveProgram())
+		this.topButtonTargets.push(this.saveButton)
 
 		this.loadButton = this.add.text(
 			this.saveButton.x + this.saveButton.width + buttonSpacing,
@@ -263,6 +269,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			{ ...buttonStyle, color: '#111' }
 		).setInteractive({ useHandCursor: true })
 		this.loadButton.on('pointerdown', () => this.loadProgram())
+		this.topButtonTargets.push(this.loadButton)
 	}
 
 	createVariablePalette() {
@@ -407,6 +414,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 				selections: cmd.params.map(() => 0),
 				paramDisplays: [],
 				container,
+				interactiveEntries: [],
 			}
 
 			const button = this.add.text(
@@ -423,6 +431,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 				}
 			).setInteractive({ useHandCursor: true })
 			button.on('pointerdown', () => this.addCommandLine(state))
+			state.interactiveEntries.push(button)
 			container.add(button)
 			let blockHeight = button.y + button.height
 			let blockWidth = Math.max(220, button.width + 20)
@@ -481,6 +490,9 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 		upArrow.on('pointerdown', () => this.adjustParam(state, paramIndex, 1))
 		downArrow.on('pointerdown', () => this.adjustParam(state, paramIndex, -1))
+		if (state && state.interactiveEntries) {
+			state.interactiveEntries.push(upArrow, downArrow)
+		}
 
 		const rowHeight = Math.max(label.height, valueText.height)
 		const rightEdge = downArrow.x + downArrow.width
@@ -523,7 +535,66 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		return `${value}`
 	}
 
+	toggleInteractiveTarget(target, enabled) {
+		if (!target) return
+		if (enabled) {
+			if (!target.input || !target.input.enabled) {
+				target.setInteractive({ useHandCursor: true })
+			} else {
+				target.input.enabled = true
+			}
+		} else {
+			if (typeof target.disableInteractive === 'function') {
+				target.disableInteractive()
+			} else if (target.input) {
+				target.input.enabled = false
+			}
+			//target.setAlpha(baseAlpha * 0.5)
+		}
+	}
+
+	setTopButtonsEnabled(enabled) {
+		if (!Array.isArray(this.topButtonTargets)) return
+		this.topButtonTargets.forEach((button) => this.toggleInteractiveTarget(button, enabled))
+	}
+
+	setPaletteInteractivity(states, enabled) {
+		if (!Array.isArray(states)) return
+		states.forEach((state) => {
+			if (!state || !Array.isArray(state.interactiveEntries)) return
+			state.interactiveEntries.forEach((entry) => this.toggleInteractiveTarget(entry, enabled))
+		})
+	}
+
+	beginAddAnimationLock(index) {
+		if (this.isAddAnimationActive) return
+		this.isAddAnimationActive = true
+		this.activeAddAnimationIndex = typeof index === 'number' ? index : null
+		this.setTopButtonsEnabled(false)
+		this.setPaletteInteractivity(this.commandStates, false)
+		this.setPaletteInteractivity(this.variableCommandStates, false)
+	}
+
+	completeAddAnimationLock() {
+		if (!this.isAddAnimationActive) return
+		this.isAddAnimationActive = false
+		this.activeAddAnimationIndex = null
+		this.setTopButtonsEnabled(true)
+		this.setPaletteInteractivity(this.commandStates, true)
+		this.setPaletteInteractivity(this.variableCommandStates, true)
+	}
+
+	handleLineRevealComplete(programIndex) {
+		if (!this.isAddAnimationActive) return
+		if (typeof programIndex !== 'number') return
+		if (typeof this.activeAddAnimationIndex === 'number' && programIndex !== this.activeAddAnimationIndex) {
+			return
+		}
+		this.completeAddAnimationLock()
+	}
+
 	addCommandLine(state) {
+		if (this.isAddAnimationActive) return
 		if (this.program.length >= this.memoryLimit) {
 			this.updateStatus(`Memory full. Limit is ${this.memoryLimit} lines.`, 0xff6388)
 			return
@@ -535,6 +606,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			values
 		})
 		this.pendingAnimateLineIndex = insertIndex
+		this.beginAddAnimationLock(insertIndex)
 		this.playTypingSound()
 		this.updateCodeText()
 		this.selectLine(insertIndex, true)
@@ -1064,6 +1136,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 				}
 				if (charIndex >= fullText.length) {
 					typingEvent.remove()
+					this.handleLineRevealComplete(lineText.programIndex)
 				}
 			}
 		})
