@@ -4,8 +4,8 @@ const AVAILABLE_COMMANDS = ['CLEAR', 'POKE', 'SHIFT', 'ROLL', 'PRINT', 'GOTO']
 const VARIABLE_NAMES = ['A', 'B', 'C', 'D']
 
 const BIT_COUNT = 4
-const MAX_GOTO_JUMPS = 3
 const LINE_NUMBER_VALUES = Array.from({ length: 20 }, (_, idx) => (idx + 1) * 10)
+const GOTO_ITERATION_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 const TARGET_OUTPUTS = [
 	'1010',
@@ -63,6 +63,9 @@ const COMMANDS = [{
 	params: [{
 		name: 'line',
 		values: LINE_NUMBER_VALUES,
+	}, {
+		name: 'times',
+		values: GOTO_ITERATION_VALUES,
 	}],
 }]
 
@@ -475,7 +478,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		let error = null
 		const variables = Object.create(null)
 		let pointer = 0
-		let gotoCount = 0
+		const gotoExecutionCounts = new Map()
 
 		while (pointer < this.program.length) {
 			const entry = this.program[pointer]
@@ -527,16 +530,23 @@ export default class BasicConsoleScene extends Phaser.Scene {
 					break
 				case 'GOTO': {
 					const lineNumber = entry.values[0]
+					const iterationsResult = this.resolveGotoIterations(entry.values[1], pointer)
+					if (iterationsResult.error) {
+						error = iterationsResult.error
+						break
+					}
+					const allowedIterations = iterationsResult.value
+					const usageKey = pointer
+					const used = gotoExecutionCounts.get(usageKey) || 0
+					if (used >= allowedIterations) {
+						break
+					}
 					const jumpResult = this.resolveGoto(lineNumber, pointer)
 					if (jumpResult.error) {
 						error = jumpResult.error
 						break
 					}
-					if (gotoCount >= MAX_GOTO_JUMPS) {
-						// Exceeded jump cap: treat as no-op and continue execution.
-						break
-					}
-					gotoCount++
+					gotoExecutionCounts.set(usageKey, used + 1)
 					pointer = jumpResult.index
 					advancePointer = false
 					break
@@ -651,6 +661,13 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			return { error: `Line ${lineNumber} does not exist (line ${(currentLineIndex + 1)*10})` }
 		}
 		return { index: targetIndex }
+	}
+
+	resolveGotoIterations(rawValue, lineIndex) {
+		if (!Number.isInteger(rawValue) || rawValue <= 0) {
+			return { error: `GOTO iterations must be a positive integer (line ${(lineIndex + 1)*10})` }
+		}
+		return { value: rawValue }
 	}
 
 	updateStatus(message, color = 0xffff66) {
