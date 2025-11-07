@@ -127,9 +127,9 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.pendingDeleteLines = []
 		this.pendingDeleteNextSelection = null
 		this.deleteCursorActive = false
-		this.pendingDeleteLines = []
-		this.pendingDeleteNextSelection = null
-		this.deleteCursorActive = false
+		this.highlightActive = false
+		this.dragIndicatorActive = false
+		this.dragStartPointer = null
 		this.createScreen()
 		this.createTextAreas()
 		this.createButtons()
@@ -299,15 +299,26 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.isDraggingLine = true
 		this.draggedLineOriginalIndex = gameObject.programIndex
 		this.dragTargetIndex = gameObject.programIndex
-		this.dragIndicator.setVisible(true)
-		this.positionDragIndicator(this.dragTargetIndex)
+		this.dragIndicatorActive = false
+		this.dragIndicator.setVisible(false)
+		this.dragStartPointer = { x: pointer.x, y: pointer.y }
 		gameObject.setAlpha(0.6)
+		this.highlightActive = true
+		this.updateLineHighlight()
 	}
 
 	handleLineDrag(pointer, gameObject, dragX, dragY) {
 		if (!gameObject.isCodeLine) return
 		gameObject.x = this.codeLineStartX
 		gameObject.y = dragY
+		if (!this.dragIndicatorActive) {
+			const start = this.dragStartPointer || { x: dragX, y: dragY }
+			const moved = Math.abs(pointer.x - start.x) > 2 || Math.abs(pointer.y - start.y) > 2
+			if (moved) {
+				this.dragIndicatorActive = true
+				this.positionDragIndicator(this.dragTargetIndex)
+			}
+		}
 		const dropIndex = this.getDropIndexFromY(dragY)
 		if (dropIndex !== this.dragTargetIndex) {
 			this.dragTargetIndex = dropIndex
@@ -319,6 +330,8 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		if (!gameObject.isCodeLine) return
 		gameObject.setAlpha(1)
 		this.dragIndicator.setVisible(false)
+		this.dragIndicatorActive = false
+		this.dragStartPointer = null
 		let finalSelectionIndex = this.draggedLineOriginalIndex
 		if (this.draggedLineOriginalIndex !== null && this.dragTargetIndex !== null) {
 			const newIndex = this.applyDragReorder()
@@ -329,7 +342,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.updateCodeText()
 		}
 		if (typeof finalSelectionIndex === 'number') {
-			this.selectLine(finalSelectionIndex)
+			this.selectLine(finalSelectionIndex, true)
 		}
 		this.isDraggingLine = false
 		this.draggedLineOriginalIndex = null
@@ -488,7 +501,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const value = this.getParamValue(state, paramIndex)
 		display.valueText.setText(this.formatParamValue(value))
 		display.valueText.setX(display.label.x + display.label.width + 12)
-		display.upArrow.setX(display.valueText.x + display.valueText.width+12)
+		display.upArrow.setX(display.valueText.x + display.valueText.width + 12)
 		display.downArrow.setX(display.valueText.x + display.valueText.width)
 		display.upArrow.setY(display.valueText.y)
 		display.downArrow.setY(display.valueText.y)
@@ -522,7 +535,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.pendingAnimateLineIndex = insertIndex
 		this.playTypingSound()
 		this.updateCodeText()
-		this.selectLine(insertIndex)
+		this.selectLine(insertIndex, true)
 	}
 
 	deleteSelectedLine() {
@@ -550,7 +563,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.selectedLine = this.pendingDeleteNextSelection
 			this.updateCodeText()
 			if (this.selectedLine >= 0) {
-				this.selectLine(this.selectedLine)
+				this.selectLine(this.selectedLine, true)
 			} else {
 				this.cursorBlock.setVisible(false)
 			}
@@ -788,7 +801,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.selectedLine = trimmed.length ? 0 : -1
 		this.updateCodeText()
 		if (this.selectedLine !== -1) {
-			this.selectLine(this.selectedLine)
+			this.selectLine(this.selectedLine, true)
 		}
 		if (sanitized.length > trimmed.length) {
 			this.updateStatus(`Program "${name}" loaded (trimmed to ${this.memoryLimit} lines).`, 0xffae00)
@@ -923,7 +936,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			lineText.setInteractive({ useHandCursor: true })
 			lineText.on('pointerdown', () => {
 				if (this.isDraggingLine) return
-				this.selectLine(index)
+				this.selectLine(index, false)
 			})
 			lineText.isCodeLine = true
 			lineText.programIndex = index
@@ -944,13 +957,14 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.pendingDeleteLines.push({ index, text })
 	}
 
-	selectLine(index) {
+	selectLine(index, shouldHighlight = false) {
 		if (!this.program.length) {
 			this.selectedLine = -1
 			this.cursorBlock.setVisible(false)
 			return
 		}
 		this.deleteCursorActive = false
+		this.highlightActive = shouldHighlight
 		this.selectedLine = Phaser.Math.Clamp(index, 0, this.program.length - 1)
 		this.cursorVisible = true
 		this.cursorBlock.setVisible(true)
@@ -959,6 +973,13 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	updateLineHighlight() {
+		if (!this.highlightActive) {
+			this.codeLines.forEach((line) => {
+				if (!line) return
+				line.setColor('#00ff9c')
+			})
+			return
+		}
 		this.codeLines.forEach((line, idx) => {
 			if (!line) return
 			line.setColor(idx === this.selectedLine ? '#ffffff' : '#00ff9c')
@@ -1004,11 +1025,11 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.deleteCursorActive = false
 			const nextIndex = this.pendingDeleteNextSelection
 			this.pendingDeleteNextSelection = null
-			if (typeof nextIndex === 'number' && nextIndex >= 0) {
-				this.selectLine(nextIndex)
-			} else {
-				this.cursorBlock.setVisible(false)
-			}
+					if (typeof nextIndex === 'number' && nextIndex >= 0) {
+						this.selectLine(nextIndex, true)
+					} else {
+						this.cursorBlock.setVisible(false)
+					}
 			return
 		}
 		const lineY = this.codeLineStartY + index * this.codeLineHeight
@@ -1041,7 +1062,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 					const nextIndex = this.pendingDeleteNextSelection
 					this.pendingDeleteNextSelection = null
 					if (typeof nextIndex === 'number' && nextIndex >= 0) {
-						this.selectLine(nextIndex)
+						this.selectLine(nextIndex, true)
 					} else {
 						this.cursorBlock.setVisible(false)
 					}
@@ -1050,14 +1071,14 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		})
 	}
 
-		formatCommand(entry) {
-			if (!entry.values.length) return entry.key
-			if (entry.key === 'LET' && entry.values.length >= 2) {
-				return `${entry.key} ${this.formatParamValue(entry.values[0])} = ${this.formatParamValue(entry.values[1])}`
-			}
-			const params = entry.values.map((val) => this.formatParamValue(val))
-			return `${entry.key} ${params.join(' ')}`
+	formatCommand(entry) {
+		if (!entry.values.length) return entry.key
+		if (entry.key === 'LET' && entry.values.length >= 2) {
+			return `${entry.key} ${this.formatParamValue(entry.values[0])} = ${this.formatParamValue(entry.values[1])}`
 		}
+		const params = entry.values.map((val) => this.formatParamValue(val))
+		return `${entry.key} ${params.join(' ')}`
+	}
 
 	runProgram() {
 		if (!this.program.length) {
@@ -1145,7 +1166,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 					break
 				}
 				default:
-					error = `Unknown command "${entry.key}" (line ${(pointer + 1)*10})`
+					error = `Unknown command "${entry.key}" (line ${(pointer + 1) * 10})`
 			}
 
 			if (error) break
@@ -1173,14 +1194,14 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	setBit(bits, index, value, lineIndex) {
-		if (!this.isValidIndex(index)) return `Bit index must be 0-${BIT_COUNT - 1} (line ${(lineIndex + 1)*10})`
-		if (value !== 0 && value !== 1) return `Value must be 0 or 1 (line ${(lineIndex + 1)*10})`
+		if (!this.isValidIndex(index)) return `Bit index must be 0-${BIT_COUNT - 1} (line ${(lineIndex + 1) * 10})`
+		if (value !== 0 && value !== 1) return `Value must be 0 or 1 (line ${(lineIndex + 1) * 10})`
 		bits[index] = value
 		return null
 	}
 
 	flipBit(bits, index, lineIndex) {
-		if (!this.isValidIndex(index)) return `Bit index must be 0-${BIT_COUNT - 1} (line ${(lineIndex + 1)*10})`
+		if (!this.isValidIndex(index)) return `Bit index must be 0-${BIT_COUNT - 1} (line ${(lineIndex + 1) * 10})`
 		bits[index] = bits[index] ? 0 : 1
 		return null
 	}
@@ -1192,7 +1213,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	shiftBits(bits, direction, wrap, lineIndex) {
 		const dir = direction.toUpperCase()
 		if (dir !== 'LEFT' && dir !== 'RIGHT') {
-			return `Direction must be LEFT or RIGHT (line ${(lineIndex + 1)*10})`
+			return `Direction must be LEFT or RIGHT (line ${(lineIndex + 1) * 10})`
 		}
 		if (dir === 'LEFT') {
 			const first = bits.shift()
@@ -1207,17 +1228,17 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	resolveNumericValue(rawValue, variables, lineIndex) {
 		if (typeof rawValue === 'string') {
 			if (!this.isVariableName(rawValue)) {
-				return { error: `Unknown variable "${rawValue}" (line ${(lineIndex + 1)*10})` }
+				return { error: `Unknown variable "${rawValue}" (line ${(lineIndex + 1) * 10})` }
 			}
 			if (typeof variables[rawValue] === 'undefined') {
-				return { error: `Variable "${rawValue}" is undefined (line ${(lineIndex + 1)*10})` }
+				return { error: `Variable "${rawValue}" is undefined (line ${(lineIndex + 1) * 10})` }
 			}
 			return { value: variables[rawValue] }
 		}
 		if (Number.isFinite(rawValue)) {
 			return { value: rawValue }
 		}
-		return { error: `Invalid numeric value "${rawValue}" (line ${(lineIndex + 1)*10})` }
+		return { error: `Invalid numeric value "${rawValue}" (line ${(lineIndex + 1) * 10})` }
 	}
 
 	isVariableName(value) {
@@ -1226,7 +1247,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	setVariable(variables, name, rawValue, lineIndex) {
 		if (!this.isVariableName(name)) {
-			return `Invalid variable "${name}" (line ${(lineIndex + 1)*10})`
+			return `Invalid variable "${name}" (line ${(lineIndex + 1) * 10})`
 		}
 		const resolvedValue = this.resolveNumericValue(rawValue, variables, lineIndex)
 		if (resolvedValue.error) return resolvedValue.error
@@ -1236,10 +1257,10 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	adjustVariable(op, variables, name, lineIndex) {
 		if (!this.isVariableName(name)) {
-			return `Invalid variable "${name}" (line ${(lineIndex + 1)*10})`
+			return `Invalid variable "${name}" (line ${(lineIndex + 1) * 10})`
 		}
 		if (typeof variables[name] === 'undefined') {
-			return `Variable "${name}" must be defined with LET before ${op} (line ${(lineIndex + 1)*10})`
+			return `Variable "${name}" must be defined with LET before ${op} (line ${(lineIndex + 1) * 10})`
 		}
 		variables[name] += op === 'INC' ? 1 : -1
 		return null
@@ -1247,18 +1268,18 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	resolveGoto(lineNumber, currentLineIndex) {
 		if (!Number.isInteger(lineNumber) || lineNumber <= 0 || lineNumber % 10 !== 0) {
-			return { error: `Line number must be a positive multiple of 10 (line ${(currentLineIndex + 1)*10})` }
+			return { error: `Line number must be a positive multiple of 10 (line ${(currentLineIndex + 1) * 10})` }
 		}
 		const targetIndex = lineNumber / 10 - 1
 		if (targetIndex < 0 || targetIndex >= this.program.length) {
-			return { error: `Line ${lineNumber} does not exist (line ${(currentLineIndex + 1)*10})` }
+			return { error: `Line ${lineNumber} does not exist (line ${(currentLineIndex + 1) * 10})` }
 		}
 		return { index: targetIndex }
 	}
 
 	resolveGotoIterations(rawValue, lineIndex) {
 		if (!Number.isInteger(rawValue) || rawValue <= 0) {
-			return { error: `GOTO iterations must be a positive integer (line ${(lineIndex + 1)*10})` }
+			return { error: `GOTO iterations must be a positive integer (line ${(lineIndex + 1) * 10})` }
 		}
 		return { value: rawValue }
 	}
