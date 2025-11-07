@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 
-const AVAILABLE_COMMANDS = ['CLEAR', 'POKE', 'SHIFT', 'ROLL', 'PRINT', 'GOTO']
+const AVAILABLE_COMMANDS = ['CLEAR', 'POKE', 'SHIFT', 'ROLL', 'PRINT', 'GOTO', 'VARIABLES']
 const VARIABLE_NAMES = ['A', 'B', 'C', 'D']
 
 const BIT_COUNT = 4
@@ -100,17 +100,19 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	init(data) {
 		this.gameData = data;
 		this.gameData.availableCommands = this.gameData.availableCommands || AVAILABLE_COMMANDS
+		this.gameData.availableCommandKeys = this.gameData.availableCommands
+		this.gameData.memoryLimit = this.gameData.memoryLimit || 8
 	}
 	preload() {
 		this.load.image('screen', 'topdown/screen.png')
 	}
 
 	create() {
+		this.availableCommandKeys = this.availableCommandKeys || AVAILABLE_COMMANDS
 		this.targetBits = Phaser.Utils.Array.GetRandom(TARGET_OUTPUTS)
 		this.program = []
 		this.selectedLine = -1
 		this.cursorVisible = true
-
 		this.createScreen()
 		this.createTextAreas()
 		this.createButtons()
@@ -212,6 +214,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	createVariablePalette() {
+		if (!this.availableCommandKeys.includes('VARIABLES')) return
 		const screenBounds = this.screen.getBounds()
 		const columnLeft = Math.max(20, screenBounds.left - 280)
 		const { states } = this.buildCommandPanel(columnLeft, 'Variables', VARIABLE_COMMANDS)
@@ -221,7 +224,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	createCommandPalette() {
 		const screenBounds = this.screen.getBounds()
 		const columnLeft = screenBounds.right - 30
-		const availableCommands = COMMANDS.filter((cmd) => this.gameData.availableCommands.includes(cmd.key))
+		const availableCommands = COMMANDS.filter((cmd) => this.availableCommandKeys.includes(cmd.key))
 		const { states, nextY } = this.buildCommandPanel(columnLeft, 'Monster Basic', availableCommands)
 		this.commandStates = states
 
@@ -368,6 +371,10 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	addCommandLine(state) {
+		if (this.program.length >= this.gameData.memoryLimit) {
+			this.updateStatus(`Memory full. Limit is ${this.gameData.memoryLimit} lines.`, 0xff6388)
+			return
+		}
 		const values = state.def.params.map((_, idx) => this.getParamValue(state, idx))
 		const insertIndex = this.selectedLine === -1 ? this.program.length : this.selectedLine + 1
 		this.program.splice(insertIndex, 0, {
