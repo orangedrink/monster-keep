@@ -6,6 +6,7 @@ const VARIABLE_NAMES = ['A', 'B', 'C', 'D']
 const BIT_COUNT = 4
 const LINE_NUMBER_VALUES = Array.from({ length: 20 }, (_, idx) => (idx + 1) * 10)
 const GOTO_ITERATION_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+const PROGRAM_STORAGE_KEY = 'basic-console-program'
 
 const TARGET_OUTPUTS = [
 	'1010',
@@ -97,11 +98,12 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	constructor() {
 		super('basic-console')
 	}
-	init(data) {
+	init(data = {}) {
 		this.gameData = data;
 		this.gameData.availableCommands = this.gameData.availableCommands || AVAILABLE_COMMANDS
-		this.gameData.availableCommandKeys = this.gameData.availableCommands
-		this.gameData.memoryLimit = this.gameData.memoryLimit || 8
+		this.availableCommandKeys = this.gameData.availableCommands
+		this.hasVariablePalette = this.availableCommandKeys.some((cmd) => cmd.toLowerCase() === 'variables')
+		this.memoryLimit = this.gameData.memoryLimit || 8
 	}
 	preload() {
 		this.load.image('screen', 'topdown/screen.png')
@@ -109,15 +111,26 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	create() {
 		this.availableCommandKeys = this.availableCommandKeys || AVAILABLE_COMMANDS
+		if (typeof this.hasVariablePalette === 'undefined') {
+			this.hasVariablePalette = this.availableCommandKeys.some((cmd) => cmd.toLowerCase() === 'variables')
+		}
+		this.memoryLimit = this.memoryLimit || 8
 		this.targetBits = Phaser.Utils.Array.GetRandom(TARGET_OUTPUTS)
 		this.program = []
 		this.selectedLine = -1
 		this.cursorVisible = true
+		this.isDraggingLine = false
+		this.draggedLineOriginalIndex = null
+		this.dragTargetIndex = null
+		this.pendingAnimateLineIndex = null
 		this.createScreen()
 		this.createTextAreas()
 		this.createButtons()
 		this.createVariablePalette()
 		this.createCommandPalette()
+		this.registerLineDragHandlers()
+		this.savePrompt = null
+		this.loadPrompt = null
 
 		this.updateStatus(`Goal: PRINT ${this.targetBits}`)
 		this.updateCodeText()
@@ -150,6 +163,9 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.codeLineStartY = this.codeLabel.y + 34
 		this.codeLineHeight = 22
 		this.codeLines = []
+		this.dragIndicator = this.add.rectangle(this.codeLineStartX - 6, this.codeLineStartY, 320, 4, 0x00ff9c, 0.5)
+			.setOrigin(0, 0)
+			.setVisible(false)
 		this.cursorBlock = this.add.rectangle(this.codeLineStartX, this.codeLineStartY, 12, 18, 0x00ff9c, 0.8)
 		this.cursorBlock.setOrigin(0, 0)
 		this.cursorBlock.setVisible(false)
@@ -199,22 +215,39 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.runButton = this.add.text(
 			this.outputLabel.x + 350,
 			screenBounds.bottom - padding - 560,
-			'RUN ⏎',
+			'RUN  ⏎',
 			buttonStyle
 		).setInteractive({ useHandCursor: true })
 		this.runButton.on('pointerdown', () => this.runProgram())
 
+		const buttonSpacing = 40
 		this.clearButton = this.add.text(
 			this.runButton.x,
-			this.runButton.y + 40,
-			'DEL ⌫',
+			this.runButton.y + buttonSpacing,
+			'DEL  ⌫',
 			{ ...buttonStyle, backgroundColor: '#ff6388', color: '#fff' }
 		).setInteractive({ useHandCursor: true })
 		this.clearButton.on('pointerdown', () => this.deleteSelectedLine())
+
+		this.saveButton = this.add.text(
+			this.runButton.x,
+			this.clearButton.y + buttonSpacing,
+			'SAVE ⎘',
+			{ ...buttonStyle, backgroundColor: '#2dd4bf', color: '#111' }
+		).setInteractive({ useHandCursor: true })
+		this.saveButton.on('pointerdown', () => this.saveProgram())
+
+		this.loadButton = this.add.text(
+			this.runButton.x,
+			this.saveButton.y + buttonSpacing,
+			'LOAD ⎗',
+			{ ...buttonStyle, backgroundColor: '#4dabf7', color: '#111' }
+		).setInteractive({ useHandCursor: true })
+		this.loadButton.on('pointerdown', () => this.loadProgram())
 	}
 
 	createVariablePalette() {
-		if (!this.availableCommandKeys.includes('VARIABLES')) return
+		if (!this.hasVariablePalette) return
 		const screenBounds = this.screen.getBounds()
 		const columnLeft = Math.max(20, screenBounds.left - 280)
 		const { states } = this.buildCommandPanel(columnLeft, 'Variables', VARIABLE_COMMANDS)
@@ -234,6 +267,94 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			'Click a command to append it.\nClick DEL to remove a line.\nClick RUN to execute.',
 			{ fontFamily: 'Silkscreen', fontSize: 14, color: '#cccccc' }
 		)
+	}
+
+	registerLineDragHandlers() {
+		if (this.lineDragHandlersRegistered) return
+		this.lineDragHandlersRegistered = true
+		this.input.on('dragstart', this.handleLineDragStart, this)
+		this.input.on('drag', this.handleLineDrag, this)
+		this.input.on('dragend', this.handleLineDragEnd, this)
+	}
+
+	handleLineDragStart(pointer, gameObject) {
+		if (!gameObject.isCodeLine) return
+		this.isDraggingLine = true
+		this.draggedLineOriginalIndex = gameObject.programIndex
+		this.dragTargetIndex = gameObject.programIndex
+		this.dragIndicator.setVisible(true)
+		this.positionDragIndicator(this.dragTargetIndex)
+		gameObject.setAlpha(0.6)
+	}
+
+	handleLineDrag(pointer, gameObject, dragX, dragY) {
+		if (!gameObject.isCodeLine) return
+		gameObject.x = this.codeLineStartX
+		gameObject.y = dragY
+		const dropIndex = this.getDropIndexFromY(dragY)
+		if (dropIndex !== this.dragTargetIndex) {
+			this.dragTargetIndex = dropIndex
+			this.positionDragIndicator(this.dragTargetIndex)
+		}
+	}
+
+	handleLineDragEnd(pointer, gameObject) {
+		if (!gameObject.isCodeLine) return
+		gameObject.setAlpha(1)
+		this.dragIndicator.setVisible(false)
+		let finalSelectionIndex = this.draggedLineOriginalIndex
+		if (this.draggedLineOriginalIndex !== null && this.dragTargetIndex !== null) {
+			const newIndex = this.applyDragReorder()
+			if (typeof newIndex === 'number') {
+				finalSelectionIndex = newIndex
+			}
+		} else {
+			this.updateCodeText()
+		}
+		if (typeof finalSelectionIndex === 'number') {
+			this.selectLine(finalSelectionIndex)
+		}
+		this.isDraggingLine = false
+		this.draggedLineOriginalIndex = null
+		this.dragTargetIndex = null
+	}
+
+	getDropIndexFromY(yPosition) {
+		if (!this.program.length) return 0
+		const relativeY = yPosition - this.codeLineStartY
+		let slot = Math.round(relativeY / this.codeLineHeight)
+		slot = Phaser.Math.Clamp(slot, 0, this.program.length)
+		return slot
+	}
+
+	positionDragIndicator(index) {
+		if (index < 0) return
+		const indicatorY = this.codeLineStartY + index * this.codeLineHeight - 2
+		this.dragIndicator.setY(indicatorY)
+		this.dragIndicator.setVisible(true)
+	}
+
+	applyDragReorder() {
+		if (this.draggedLineOriginalIndex === null || this.dragTargetIndex === null || !this.program.length) {
+			this.updateCodeText()
+			return this.draggedLineOriginalIndex
+		}
+		const originalLength = this.program.length
+		const fromIndex = Phaser.Math.Clamp(this.draggedLineOriginalIndex, 0, originalLength - 1)
+		let targetSlot = Phaser.Math.Clamp(this.dragTargetIndex, 0, originalLength)
+		const [entry] = this.program.splice(fromIndex, 1)
+		if (!this.program.length) {
+			this.program.push(entry)
+			this.updateCodeText()
+			return 0
+		}
+		if (targetSlot > fromIndex) {
+			targetSlot = Math.max(0, targetSlot - 1)
+		}
+		let insertionIndex = Phaser.Math.Clamp(targetSlot, 0, this.program.length)
+		this.program.splice(insertionIndex, 0, entry)
+		this.updateCodeText()
+		return insertionIndex
 	}
 
 	buildCommandPanel(columnLeft, titleText, commands) {
@@ -371,8 +492,8 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	addCommandLine(state) {
-		if (this.program.length >= this.gameData.memoryLimit) {
-			this.updateStatus(`Memory full. Limit is ${this.gameData.memoryLimit} lines.`, 0xff6388)
+		if (this.program.length >= this.memoryLimit) {
+			this.updateStatus(`Memory full. Limit is ${this.memoryLimit} lines.`, 0xff6388)
 			return
 		}
 		const values = state.def.params.map((_, idx) => this.getParamValue(state, idx))
@@ -381,6 +502,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			key: state.def.key,
 			values
 		})
+		this.pendingAnimateLineIndex = insertIndex
 		this.updateCodeText()
 		this.selectLine(insertIndex)
 	}
@@ -402,11 +524,327 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.updateCursorPosition()
 	}
 
+	saveProgram() {
+		if (this.savePrompt) return
+		if (typeof window === 'undefined' || !window.localStorage) {
+			this.updateStatus('Saving is unavailable in this environment.', 0xffae00)
+			return
+		}
+		const store = this.getSavedProgramStore()
+		const defaultName = this.buildDefaultProgramName(store)
+		this.openSavePrompt(defaultName)
+	}
+
+	loadProgram() {
+		try {
+			if (typeof window === 'undefined' || !window.localStorage) {
+				this.updateStatus('Loading is unavailable in this environment.', 0xffae00)
+				return
+			}
+			if (this.loadPrompt) return
+			const store = this.getSavedProgramStore()
+			const programNames = Object.keys(store.programs)
+			if (!programNames.length) {
+				this.updateStatus('No saved programs available.', 0xffae00)
+				return
+			}
+			this.openLoadPrompt(programNames, store)
+		} catch (error) {
+			console.error(error)
+			this.updateStatus('Failed to load program.', 0xff6388)
+		}
+	}
+
+	openLoadPrompt(programNames, store) {
+		const width = 360
+		const height = 100 + programNames.length * 28
+		const posX = this.codeLineStartX + 30
+		const posY = this.codeLineStartY - 30
+		const background = this.add.rectangle(posX, posY, width, height, 0x000000, 0.92)
+			.setOrigin(0, 0)
+			.setStrokeStyle(2, 0x00ff9c, 0.8)
+		const title = this.add.text(posX + 12, posY + 10, 'LOAD PROGRAM', { ...this.codeLineStyle })
+		const hintStyle = { ...this.codeLineStyle, fontSize: 10 }
+		const hint = this.add.text(
+			posX + 12,
+			posY + height - 30,
+			'Click a name to load. Esc = Cancel.',
+			hintStyle
+		)
+		const nameList = []
+		let currentY = posY + 44
+		programNames.forEach((name) => {
+			const entryText = this.add.text(
+				posX + 20,
+				currentY,
+				name,
+				{ ...this.codeLineStyle }
+			).setInteractive({ useHandCursor: true })
+			entryText.on('pointerdown', () => this.handleLoadSelection(name))
+			nameList.push(entryText)
+			currentY += 24
+		})
+		const container = this.add.container(0, 0, [background, title, ...nameList, hint])
+		container.setDepth(900)
+		this.loadPrompt = {
+			container,
+			store,
+			programNames,
+		}
+		if (this.input.keyboard) {
+			this.input.keyboard.on('keydown', this.handleLoadPromptKey, this)
+		}
+	}
+
+	closeLoadPrompt() {
+		if (!this.loadPrompt) return
+		this.loadPrompt.container.destroy(true)
+		this.loadPrompt = null
+		if (this.input.keyboard) {
+			this.input.keyboard.off('keydown', this.handleLoadPromptKey, this)
+		}
+	}
+
+	handleLoadPromptKey(event) {
+		if (!this.loadPrompt) return
+		if (event.key === 'Escape') {
+			event.preventDefault()
+			this.closeLoadPrompt()
+			this.updateStatus('Load cancelled.', 0xffae00)
+		}
+	}
+
+	openSavePrompt(defaultName) {
+		const width = 360
+		const height = 140
+		const posX = this.codeLineStartX + 26
+		const posY = this.codeLineStartY + 30
+		const background = this.add.rectangle(posX, posY, width, height, 0x000000, 0.92)
+			.setOrigin(0, 0)
+			.setStrokeStyle(2, 0x00ff9c, 0.8)
+		const title = this.add.text(posX + 12, posY + 10, 'SAVE PROGRAM', { ...this.codeLineStyle })
+		const nameLabel = this.add.text(posX + 12, posY + 46, 'NAME:', { ...this.codeLineStyle })
+		const nameValue = this.add.text(nameLabel.x + nameLabel.width + 10, nameLabel.y, defaultName, { ...this.codeLineStyle })
+		const cursorHeight = this.codeLineStyle.fontSize + 3
+		const cursorBlock = this.add.rectangle(nameValue.x + nameValue.width + 2, nameValue.y + 2, 10, cursorHeight, 0x00ff9c)
+			.setOrigin(0, 0)
+			.setAlpha(0.85)
+			.setVisible(true)
+		const hintStyle = { ...this.codeLineStyle, fontSize: 10 }
+		const hint = this.add.text(
+			posX + 12,
+			posY + 82,
+			'Type to edit name.\nEnter = Save,\nEsc = Cancel.',
+			hintStyle
+		)
+
+		const container = this.add.container(0, 0, [background, title, nameLabel, nameValue, cursorBlock, hint])
+		container.setDepth(1000)
+		const blinkEvent = this.time.addEvent({
+			delay: 400,
+			loop: true,
+			callback: () => {
+				if (!this.savePrompt) {
+					blinkEvent.remove()
+					return
+				}
+				this.savePrompt.cursorVisible = !this.savePrompt.cursorVisible
+				this.savePrompt.cursor.setVisible(this.savePrompt.cursorVisible)
+			},
+		})
+		this.savePrompt = {
+			container,
+			nameText: nameValue,
+			currentName: defaultName,
+			cursor: cursorBlock,
+			cursorVisible: true,
+			blinkEvent,
+		}
+		this.updateSavePromptCursor()
+
+		if (this.input.keyboard) {
+			this.input.keyboard.on('keydown', this.handleSavePromptKey, this)
+		}
+	}
+
+	closeSavePrompt() {
+		if (!this.savePrompt) return
+		this.savePrompt.container.destroy(true)
+		if (this.savePrompt.blinkEvent) {
+			this.savePrompt.blinkEvent.remove()
+		}
+		this.savePrompt = null
+		if (this.input.keyboard) {
+			this.input.keyboard.off('keydown', this.handleSavePromptKey, this)
+		}
+	}
+
+	handleSavePromptKey(event) {
+		if (!this.savePrompt) return
+		if (event.key === 'Enter') {
+			event.preventDefault()
+			this.commitSavePrompt()
+			return
+		}
+		if (event.key === 'Escape') {
+			event.preventDefault()
+			this.closeSavePrompt()
+			this.updateStatus('Save cancelled.', 0xffae00)
+			return
+		}
+		if (event.key === 'Backspace') {
+			event.preventDefault()
+			this.updateSavePromptName(this.savePrompt.currentName.slice(0, -1))
+			return
+		}
+		if (event.key.length === 1) {
+			const printable = event.key
+			if (/[\w\s\-_.!?'"]/i.test(printable)) {
+				event.preventDefault()
+				this.updateSavePromptName(this.savePrompt.currentName + printable)
+			}
+		}
+	}
+
+	updateSavePromptName(newValue) {
+		if (!this.savePrompt) return
+		const trimmed = newValue.slice(0, 40)
+		this.savePrompt.currentName = trimmed
+		this.savePrompt.nameText.setText(trimmed)
+		this.updateSavePromptCursor()
+	}
+
+	updateSavePromptCursor() {
+		if (!this.savePrompt) return
+		const cursorX = this.savePrompt.nameText.x + this.savePrompt.nameText.width + 2
+		const cursorY = this.savePrompt.nameText.y + 2
+		this.savePrompt.cursor.setPosition(cursorX, cursorY)
+	}
+
+	commitSavePrompt() {
+		if (!this.savePrompt) return
+		const name = (this.savePrompt.currentName || '').trim()
+		if (!name) {
+			this.updateStatus('Name cannot be empty.', 0xffae00)
+			return
+		}
+		this.persistProgramByName(name.slice(0, 40))
+		this.closeSavePrompt()
+	}
+
+	handleLoadSelection(name) {
+		if (!this.loadPrompt) return
+		const store = this.loadPrompt.store
+		const savedProgram = store.programs[name]
+		if (!savedProgram) {
+			this.updateStatus(`Program "${name}" not found.`, 0xff6388)
+			this.closeLoadPrompt()
+			return
+		}
+		const sanitized = this.deserializeProgramEntries(savedProgram)
+		this.closeLoadPrompt()
+		if (!sanitized.length) {
+			this.program = []
+			this.selectedLine = -1
+			this.updateCodeText()
+			this.updateStatus(`Program "${name}" loaded (empty).`, 0xffff66)
+			return
+		}
+		const trimmed = sanitized.slice(0, this.memoryLimit)
+		this.program = trimmed
+		this.selectedLine = trimmed.length ? 0 : -1
+		this.updateCodeText()
+		if (this.selectedLine !== -1) {
+			this.selectLine(this.selectedLine)
+		}
+		if (sanitized.length > trimmed.length) {
+			this.updateStatus(`Program "${name}" loaded (trimmed to ${this.memoryLimit} lines).`, 0xffae00)
+		} else {
+			this.updateStatus(`Program "${name}" loaded.`, 0x00ff9c)
+		}
+	}
+
+	persistProgramByName(name) {
+		try {
+			if (typeof window === 'undefined' || !window.localStorage) {
+				this.updateStatus('Saving is unavailable in this environment.', 0xffae00)
+				return
+			}
+			const store = this.getSavedProgramStore()
+			const payload = this.serializeProgramEntries(this.program)
+			store.programs[name] = payload
+			store.lastSavedName = name
+			window.localStorage.setItem(PROGRAM_STORAGE_KEY, JSON.stringify(store))
+			this.updateStatus(`Program "${name}" saved.`, 0x00ff9c)
+		} catch (error) {
+			console.error(error)
+			this.updateStatus('Failed to save program.', 0xff6388)
+		}
+	}
+
+	getSavedProgramStore() {
+		const emptyStore = { programs: {}, lastSavedName: null }
+		try {
+			if (typeof window === 'undefined' || !window.localStorage) return emptyStore
+			const raw = window.localStorage.getItem(PROGRAM_STORAGE_KEY)
+			if (!raw) return emptyStore
+			const parsed = JSON.parse(raw)
+			if (Array.isArray(parsed?.program)) {
+				return {
+					programs: { Default: parsed.program },
+					lastSavedName: 'Default',
+				}
+			}
+			if (parsed && typeof parsed === 'object' && parsed.programs && typeof parsed.programs === 'object') {
+				return {
+					programs: parsed.programs,
+					lastSavedName: parsed.lastSavedName,
+				}
+			}
+			return emptyStore
+		} catch (error) {
+			console.error(error)
+			return emptyStore
+		}
+	}
+
+	buildDefaultProgramName(store) {
+		const base = 'Program'
+		const usedNames = new Set(Object.keys(store.programs || {}))
+		let suffix = Object.keys(store.programs || {}).length + 1
+		let candidate = `${base} ${suffix}`
+		while (usedNames.has(candidate)) {
+			suffix++
+			candidate = `${base} ${suffix}`
+		}
+		return candidate
+	}
+
+	serializeProgramEntries(programEntries) {
+		return programEntries.map((entry) => ({
+			key: entry.key,
+			values: Array.isArray(entry.values) ? [...entry.values] : [],
+		}))
+	}
+
+	deserializeProgramEntries(entries) {
+		if (!Array.isArray(entries)) return []
+		return entries
+			.filter((entry) => entry && typeof entry.key === 'string' && Array.isArray(entry.values))
+			.map((entry) => ({
+				key: entry.key,
+				values: [...entry.values],
+			}))
+	}
+
 	updateCodeText() {
+		const animateIndex = this.pendingAnimateLineIndex
+		this.pendingAnimateLineIndex = null
 		this.codeLines.forEach((line) => line.destroy())
 		this.codeLines = []
 
 		if (!this.program.length) {
+			this.dragIndicator.setVisible(false)
 			const emptyText = this.add.text(
 				this.codeLineStartX,
 				this.codeLineStartY,
@@ -419,6 +857,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			return
 		}
 
+		const shouldAnimateIndex = typeof animateIndex === 'number' ? animateIndex : -1
 		this.program.forEach((entry, index) => {
 			const lineText = this.add.text(
 				this.codeLineStartX,
@@ -427,8 +866,17 @@ export default class BasicConsoleScene extends Phaser.Scene {
 				this.codeLineStyle
 			)
 			lineText.setInteractive({ useHandCursor: true })
-			lineText.on('pointerdown', () => this.selectLine(index))
+			lineText.on('pointerdown', () => {
+				if (this.isDraggingLine) return
+				this.selectLine(index)
+			})
+			lineText.isCodeLine = true
+			lineText.programIndex = index
+			this.input.setDraggable(lineText)
 			this.codeLines.push(lineText)
+			if (index === shouldAnimateIndex) {
+				this.animateLineReveal(lineText)
+			}
 		})
 		this.updateLineHighlight()
 		this.updateCursorPosition()
@@ -463,6 +911,27 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.cursorBlock.setPosition(bounds.right + 6, bounds.top)
 		this.cursorBlock.setSize(14, bounds.height)
 		this.cursorBlock.setVisible(true)
+	}
+
+	animateLineReveal(lineText) {
+		if (!lineText || typeof lineText.programIndex === 'undefined') return
+		const fullText = `${(lineText.programIndex + 1) * 10}. ${this.formatCommand(this.program[lineText.programIndex])}`
+		lineText.setText('')
+		let charIndex = 0
+		const typingEvent = this.time.addEvent({
+			delay: 20,
+			loop: true,
+			callback: () => {
+				charIndex++
+				lineText.setText(fullText.slice(0, charIndex))
+				if (this.selectedLine === lineText.programIndex) {
+					this.updateCursorPosition()
+				}
+				if (charIndex >= fullText.length) {
+					typingEvent.remove()
+				}
+			}
+		})
 	}
 
 		formatCommand(entry) {
