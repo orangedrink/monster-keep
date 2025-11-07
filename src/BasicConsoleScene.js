@@ -107,6 +107,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 	preload() {
 		this.load.image('screen', 'topdown/screen.png')
+		this.load.audio('typing', 'assets/typing.wav')
 	}
 
 	create() {
@@ -123,6 +124,12 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.draggedLineOriginalIndex = null
 		this.dragTargetIndex = null
 		this.pendingAnimateLineIndex = null
+		this.pendingDeleteLines = []
+		this.pendingDeleteNextSelection = null
+		this.deleteCursorActive = false
+		this.pendingDeleteLines = []
+		this.pendingDeleteNextSelection = null
+		this.deleteCursorActive = false
 		this.createScreen()
 		this.createTextAreas()
 		this.createButtons()
@@ -131,6 +138,10 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.registerLineDragHandlers()
 		this.savePrompt = null
 		this.loadPrompt = null
+		this.typingSoundKey = 'typing'
+		if (!this.sound.get(this.typingSoundKey)) {
+			this.sound.add(this.typingSoundKey, { volume: 0.8 })
+		}
 
 		this.updateStatus(`Goal: PRINT ${this.targetBits}`)
 		this.updateCodeText()
@@ -147,14 +158,14 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	createTextAreas() {
 		const padding = 30
-		const fontConfig = { fontFamily: 'Silkscreen', fontSize: 14, color: '#00ff9c', align: 'left' }
+		const fontConfig = { fontFamily: 'Silkscreen', fontSize: 18, color: '#00ff9c', align: 'left' }
 		const { width } = this.scale
 		const screenBounds = this.screen.getBounds()
 
 		this.codeLabel = this.add.text(
 			screenBounds.left + padding + 120,
 			screenBounds.top + padding + 230,
-			'Ready',
+			'Ready>',
 			{ ...fontConfig, color: '#ffffff' }
 		)
 
@@ -211,10 +222,16 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			backgroundColor: '#00ff9c',
 			padding: { x: 14, y: 8 }
 		}
+		this.add.text(
+			20,
+			20,
+			'Commands',
+			{ fontFamily: 'Silkscreen', fontSize: 22, color: '#ffffff' }
+		)
 
 		this.runButton = this.add.text(
-			this.outputLabel.x + 350,
-			screenBounds.bottom - padding - 560,
+			this.outputLabel.x - 350,
+			screenBounds.top + 180,
 			'RUN  ⏎',
 			buttonStyle
 		).setInteractive({ useHandCursor: true })
@@ -230,15 +247,15 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.clearButton.on('pointerdown', () => this.deleteSelectedLine())
 
 		this.saveButton = this.add.text(
-			this.runButton.x,
-			this.clearButton.y + buttonSpacing,
+			this.runButton.x + this.runButton.width + buttonSpacing,
+			this.runButton.y,
 			'SAVE ⎘',
 			{ ...buttonStyle, backgroundColor: '#2dd4bf', color: '#111' }
 		).setInteractive({ useHandCursor: true })
 		this.saveButton.on('pointerdown', () => this.saveProgram())
 
 		this.loadButton = this.add.text(
-			this.runButton.x,
+			this.saveButton.x,
 			this.saveButton.y + buttonSpacing,
 			'LOAD ⎗',
 			{ ...buttonStyle, backgroundColor: '#4dabf7', color: '#111' }
@@ -250,7 +267,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		if (!this.hasVariablePalette) return
 		const screenBounds = this.screen.getBounds()
 		const columnLeft = Math.max(20, screenBounds.left - 280)
-		const { states } = this.buildCommandPanel(columnLeft, 'Variables', VARIABLE_COMMANDS)
+		const { states } = this.buildCommandPanel(columnLeft, 140, 'Variables', VARIABLE_COMMANDS)
 		this.variableCommandStates = states
 	}
 
@@ -258,7 +275,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const screenBounds = this.screen.getBounds()
 		const columnLeft = screenBounds.right - 30
 		const availableCommands = COMMANDS.filter((cmd) => this.availableCommandKeys.includes(cmd.key))
-		const { states, nextY } = this.buildCommandPanel(columnLeft, 'Monster Basic', availableCommands)
+		const { states, nextY } = this.buildCommandPanel(columnLeft, 20, 'Monster Basic', availableCommands)
 		this.commandStates = states
 
 		this.add.text(
@@ -357,8 +374,8 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		return insertionIndex
 	}
 
-	buildCommandPanel(columnLeft, titleText, commands) {
-		let currentY = 20
+	buildCommandPanel(columnLeft, y, titleText, commands) {
+		let currentY = y
 
 		this.add.text(
 			columnLeft,
@@ -429,28 +446,28 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	buildParamControl(x, y, state, paramIndex, paramDef) {
 		const labelStyle = { fontFamily: 'Silkscreen', fontSize: 14, color: '#ffffff' }
 		const valueStyle = { fontFamily: 'Silkscreen', fontSize: 16, color: '#00ff9c' }
-		const arrowStyle = { fontFamily: 'Silkscreen', fontSize: 8, color: '#ffffff', backgroundColor: '#333333', padding: { x: 1, y: 2 } }
+		const arrowStyle = { fontFamily: 'Silkscreen', fontSize: 12, color: '#ffffff', backgroundColor: '#333333', padding: { x: 2, y: 2 } }
 
 		const label = this.add.text(x, y, `${paramDef.name.toUpperCase()}:`, labelStyle)
 		const valueText = this.add.text(label.x + label.width + 12, y, '', valueStyle)
 
 		const upArrow = this.add.text(
-			valueText.x + valueText.width + 10,
-			y+10,
-			'▲',
+			valueText.x + valueText.width + 6,
+			y,
+			'▶',
 			arrowStyle
 		).setInteractive({ useHandCursor: true })
 		const downArrow = this.add.text(
-			upArrow.x,
-			y-100,
-			'▼',
+			upArrow.x + upArrow.width + 12,
+			y,
+			'◀',
 			arrowStyle
 		).setInteractive({ useHandCursor: true })
 
 		upArrow.on('pointerdown', () => this.adjustParam(state, paramIndex, 1))
 		downArrow.on('pointerdown', () => this.adjustParam(state, paramIndex, -1))
 
-		const rowHeight = Math.max(label.height, downArrow.y + downArrow.height - y)
+		const rowHeight = Math.max(label.height, valueText.height)
 		const rightEdge = downArrow.x + downArrow.width
 		const bottom = y + rowHeight
 
@@ -471,10 +488,10 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const value = this.getParamValue(state, paramIndex)
 		display.valueText.setText(this.formatParamValue(value))
 		display.valueText.setX(display.label.x + display.label.width + 12)
-		display.upArrow.setX(display.valueText.x + display.valueText.width + 12)
-		display.downArrow.setX(display.upArrow.x)
+		display.upArrow.setX(display.valueText.x + display.valueText.width+12)
+		display.downArrow.setX(display.valueText.x + display.valueText.width)
 		display.upArrow.setY(display.valueText.y)
-		display.downArrow.setY(display.valueText.y + 10)
+		display.downArrow.setY(display.valueText.y)
 		display.rightEdge = display.downArrow.x + display.downArrow.width
 		display.bottom = Math.max(
 			display.label.y + display.label.height,
@@ -503,25 +520,41 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			values
 		})
 		this.pendingAnimateLineIndex = insertIndex
+		this.playTypingSound()
 		this.updateCodeText()
 		this.selectLine(insertIndex)
 	}
 
 	deleteSelectedLine() {
 		if (this.selectedLine === -1 || !this.program.length) return
-		this.program.splice(this.selectedLine, 1)
-		if (this.selectedLine >= this.program.length) {
-			this.selectedLine = this.program.length - 1
-		}
+		this.playTypingSound()
+		const removedIndex = this.selectedLine
+		const removedEntry = this.program[removedIndex]
+		const removedText = removedEntry
+			? `${(removedIndex + 1) * 10}. ${this.formatCommand(removedEntry)}`
+			: (this.codeLines[removedIndex]?.text || '')
+		this.program.splice(removedIndex, 1)
+		this.pendingDeleteNextSelection = this.program.length
+			? Math.max(Math.min(removedIndex - 1, this.program.length - 1), 0)
+			: -1
 		if (this.program.length === 0) {
-			this.selectedLine = -1
-			this.cursorBlock.setVisible(false)
 			this.outputText.setText('')
 			this.updateStatus(`Goal: PRINT ${this.targetBits}`)
 		}
-		this.updateCodeText()
-		this.updateLineHighlight()
-		this.updateCursorPosition()
+		if (removedText) {
+			this.queueDeleteAnimation(removedIndex, removedText)
+			this.selectedLine = -1
+			this.deleteCursorActive = true
+			this.updateCodeText()
+		} else {
+			this.selectedLine = this.pendingDeleteNextSelection
+			this.updateCodeText()
+			if (this.selectedLine >= 0) {
+				this.selectLine(this.selectedLine)
+			} else {
+				this.cursorBlock.setVisible(false)
+			}
+		}
 	}
 
 	saveProgram() {
@@ -762,6 +795,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		} else {
 			this.updateStatus(`Program "${name}" loaded.`, 0x00ff9c)
 		}
+		this.playTypingSound()
 	}
 
 	persistProgramByName(name) {
@@ -780,6 +814,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			console.error(error)
 			this.updateStatus('Failed to save program.', 0xff6388)
 		}
+		this.playTypingSound()
 	}
 
 	getSavedProgramStore() {
@@ -837,9 +872,29 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			}))
 	}
 
+	playTypingSound() {
+		if (!this.typingSoundKey) return
+		const base = this.sound.get(this.typingSoundKey) || this.sound.add(this.typingSoundKey, { volume: 0.8 })
+		if (!base) return
+		const duration = base.duration || 1
+		const minSlice = 0.05
+		const maxSlice = 0.15
+		const sliceLength = Phaser.Math.FloatBetween(minSlice, Math.min(maxSlice, duration))
+		const maxStart = Math.max(0, duration - sliceLength)
+		const start = Phaser.Math.FloatBetween(0, maxStart)
+		const instance = this.sound.add(this.typingSoundKey, { volume: 0.8 })
+		instance.play({ seek: start })
+		this.time.delayedCall(sliceLength * 1000, () => {
+			instance.stop()
+			instance.destroy()
+		})
+	}
+
 	updateCodeText() {
 		const animateIndex = this.pendingAnimateLineIndex
 		this.pendingAnimateLineIndex = null
+		const deleteQueue = this.pendingDeleteLines.slice()
+		this.pendingDeleteLines.length = 0
 		this.codeLines.forEach((line) => line.destroy())
 		this.codeLines = []
 
@@ -880,6 +935,13 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		})
 		this.updateLineHighlight()
 		this.updateCursorPosition()
+		deleteQueue.forEach(({ index, text }) => this.animateLineDelete(index, text))
+	}
+
+	queueDeleteAnimation(index, text) {
+		if (!text) return
+		this.pendingDeleteLines = this.pendingDeleteLines || []
+		this.pendingDeleteLines.push({ index, text })
 	}
 
 	selectLine(index) {
@@ -888,6 +950,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.cursorBlock.setVisible(false)
 			return
 		}
+		this.deleteCursorActive = false
 		this.selectedLine = Phaser.Math.Clamp(index, 0, this.program.length - 1)
 		this.cursorVisible = true
 		this.cursorBlock.setVisible(true)
@@ -907,6 +970,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.cursorBlock.setVisible(false)
 			return
 		}
+		if (this.deleteCursorActive) return
 		const bounds = this.codeLines[this.selectedLine].getBounds()
 		this.cursorBlock.setPosition(bounds.right + 6, bounds.top)
 		this.cursorBlock.setSize(14, bounds.height)
@@ -922,6 +986,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			delay: 20,
 			loop: true,
 			callback: () => {
+				this.playTypingSound()
 				charIndex++
 				lineText.setText(fullText.slice(0, charIndex))
 				if (this.selectedLine === lineText.programIndex) {
@@ -929,6 +994,57 @@ export default class BasicConsoleScene extends Phaser.Scene {
 				}
 				if (charIndex >= fullText.length) {
 					typingEvent.remove()
+				}
+			}
+		})
+	}
+
+	animateLineDelete(index, text) {
+		if (!text) {
+			this.deleteCursorActive = false
+			const nextIndex = this.pendingDeleteNextSelection
+			this.pendingDeleteNextSelection = null
+			if (typeof nextIndex === 'number' && nextIndex >= 0) {
+				this.selectLine(nextIndex)
+			} else {
+				this.cursorBlock.setVisible(false)
+			}
+			return
+		}
+		const lineY = this.codeLineStartY + index * this.codeLineHeight
+		const overlay = this.add.text(
+			this.codeLineStartX,
+			lineY,
+			text,
+			{ ...this.codeLineStyle, color: '#ff6388' }
+		).setDepth(2000)
+		let remaining = text.length
+		const positionCursor = () => {
+			const bounds = overlay.getBounds()
+			this.cursorBlock.setVisible(true)
+			this.cursorBlock.setPosition(bounds.right + 6, bounds.top)
+			this.cursorBlock.setSize(14, bounds.height)
+		}
+		positionCursor()
+		const deleteEvent = this.time.addEvent({
+			delay: 35,
+			loop: true,
+			callback: () => {
+				this.playTypingSound()
+				remaining = Math.max(remaining - 1, 0)
+				overlay.setText(text.slice(0, remaining))
+				positionCursor()
+				if (remaining === 0) {
+					deleteEvent.remove()
+					overlay.destroy()
+					this.deleteCursorActive = false
+					const nextIndex = this.pendingDeleteNextSelection
+					this.pendingDeleteNextSelection = null
+					if (typeof nextIndex === 'number' && nextIndex >= 0) {
+						this.selectLine(nextIndex)
+					} else {
+						this.cursorBlock.setVisible(false)
+					}
 				}
 			}
 		})
@@ -948,6 +1064,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.updateStatus('Program is empty. Add commands first.', 0xffae00)
 			return
 		}
+		this.playTypingSound()
 
 		let bits = new Array(BIT_COUNT).fill(0)
 		let output = ''
