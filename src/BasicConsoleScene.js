@@ -1,11 +1,10 @@
 import Phaser from 'phaser'
 
-const AVAILABLE_COMMANDS = ['POKE', 'SHIFT', 'RETURN', 'GOTO', 'VARIABLES', 'TOGGLE']
+const AVAILABLE_COMMANDS = ['POKE', 'SHIFT', 'RETURN', 'GOTO', 'VARIABLES', 'TOGGLE', 'IF', 'PEEK']
 const VARIABLE_NAMES = ['A', 'B', 'C', 'D']
 
 const BIT_COUNT = 8
 const LINE_NUMBER_VALUES = Array.from({ length: 20 }, (_, idx) => (idx + 1) * 10)
-const GOTO_ITERATION_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 const PROGRAM_STORAGE_KEY = 'basic-console-program'
 
 const TARGET_OUTPUTS = [
@@ -22,9 +21,31 @@ const BIT_VALUE_VALUES = [0, 1]
 const DIRECTION_VALUES = ['LEFT', 'RIGHT']
 
 const normalizeCommandKey = (key) => (key === 'PRINT' ? 'RETURN' : key)
-const normalizeCommandList = (list = []) => list.map((key) => normalizeCommandKey(key))
+const normalizeCommandList = (list = []) => {
+	const normalized = []
+	list.forEach((key) => {
+		const mapped = normalizeCommandKey(key)
+		if (!normalized.includes(mapped)) {
+			normalized.push(mapped)
+		}
+	})
+	const hasIf = normalized.includes('IF')
+	if (hasIf) {
+		if (!normalized.includes('ELIF')) normalized.push('ELIF')
+		if (!normalized.includes('ENDIF')) normalized.push('ENDIF')
+	} else {
+		const indexElif = normalized.indexOf('ELIF')
+		if (indexElif !== -1) normalized.splice(indexElif, 1)
+		const indexEndif = normalized.indexOf('ENDIF')
+		if (indexEndif !== -1) normalized.splice(indexEndif, 1)
+	}
+	return normalized
+}
 
 const withVariableOptions = (values) => [...values, ...VARIABLE_NAMES]
+const CONDITIONAL_COMPARATORS = ['==', '!=', '<', '<=', '>', '>=', 'TRUE', 'FALSE']
+const BOOLEAN_COMPARATORS = new Set(['TRUE', 'FALSE'])
+const CONDITIONAL_COMPARATOR_SET = new Set(CONDITIONAL_COMPARATORS.map((cmp) => cmp.toUpperCase()))
 const BIT_INDEX_PARAM_VALUES = withVariableOptions(BIT_INDEX_VALUES)
 const BIT_VALUE_PARAM_VALUES = withVariableOptions(BIT_VALUE_VALUES)
 const GENERAL_NUMERIC_PARAM_VALUES = withVariableOptions(BIT_INDEX_VALUES)
@@ -60,6 +81,15 @@ const COMMANDS = [{
 		values: DIRECTION_VALUES,
 	}],
 }, {
+	key: 'PEEK',
+	params: [{
+		name: 'index',
+		values: BIT_INDEX_PARAM_VALUES,
+	}, {
+		name: 'var',
+		values: VARIABLE_NAMES,
+	}],
+}, {
 	key: 'RETURN',
 	params: [],
 }, {
@@ -68,9 +98,35 @@ const COMMANDS = [{
 		name: 'line',
 		values: LINE_NUMBER_VALUES,
 	}, {
-		name: 'times',
-		values: GOTO_ITERATION_VALUES,
+		name: 'var',
+		values: VARIABLE_NAMES,
+	}, {
+		name: 'cmp',
+		values: CONDITIONAL_COMPARATORS,
+		defaultIndex: Math.max(CONDITIONAL_COMPARATORS.findIndex((cmp) => cmp === 'TRUE'), 0),
+	}, {
+		name: 'value',
+		values: GENERAL_NUMERIC_PARAM_VALUES,
 	}],
+}, {
+	key: 'IF',
+	params: [{
+		name: 'var',
+		values: VARIABLE_NAMES,
+	}, {
+		name: 'cmp',
+		values: CONDITIONAL_COMPARATORS,
+	}, {
+		name: 'value',
+		values: GENERAL_NUMERIC_PARAM_VALUES,
+	}],
+	conditionalVisibility: { comparatorIndex: 1, valueIndex: 2 },
+}, {
+	key: 'ELIF',
+	params: [],
+}, {
+	key: 'ENDIF',
+	params: [],
 }]
 
 const VARIABLE_COMMANDS = [{
@@ -114,7 +170,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.gameData.availableCommands = normalizeCommandList(providedCommands)
 		this.availableCommandKeys = this.gameData.availableCommands
 		this.hasVariablePalette = this.availableCommandKeys.some((cmd) => cmd.toLowerCase() === 'variables')
-		this.memoryLimit = this.gameData.memoryLimit || 8
+		this.memoryLimit = this.gameData.memoryLimit || 10
 	}
 	preload() {
 		this.load.image('screen', 'topdown/screen.png')
@@ -208,7 +264,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 		this.outputLabel = this.add.text(
 			this.codeLabel.x,
-			screenBounds.bottom - padding - 350,
+			screenBounds.bottom - padding - 330,
 			'Output:',
 			{ ...fontConfig, color: '#ffffff' }
 		)
@@ -217,15 +273,15 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.outputLabel.x,
 			this.outputLabel.y + 16,
 			'',
-			{ ...fontConfig, fontSize: 22 }
+			{ ...fontConfig, fontSize: 16 }
 		)
 
 		this.statusText = this.add.text(
-			width / 2 - 88,
-			screenBounds.bottom - 333,
+			this.outputLabel.x,
+			this.outputText.y + 16,
 			'',
 			{ ...fontConfig, color: '#ffff66' }
-		).setOrigin(0.5, 0)
+		).setOrigin(0, 0)
 	}
 
 	createButtons() {
@@ -288,8 +344,14 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const screenBounds = this.screen.getBounds()
 		const columnLeft = Math.max(20, screenBounds.left - 280)
 		const variableCommands = VARIABLE_COMMANDS.filter((cmd) => !cmd.requiresKey || this.availableCommandKeys.includes(cmd.requiresKey))
-		const { states } = this.buildCommandPanel(columnLeft, 140, 'Variables', variableCommands)
+		const { states, nextY  } = this.buildCommandPanel(columnLeft, 140, 'Variables', variableCommands)
 		this.variableCommandStates = states
+		this.add.text(
+			columnLeft,
+			nextY,
+			'Click a command to append it.\nClick DEL to remove a line.\nClick RUN to execute.',
+			{ fontFamily: 'Silkscreen', fontSize: 12, color: '#cccccc' }
+		)
 	}
 
 	createCommandPalette() {
@@ -298,13 +360,6 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const availableCommands = COMMANDS.filter((cmd) => this.availableCommandKeys.includes(cmd.key))
 		const { states, nextY } = this.buildCommandPanel(columnLeft, 20, 'Monster Basic', availableCommands)
 		this.commandStates = states
-
-		this.add.text(
-			columnLeft,
-			nextY,
-			'Click a command to append it.\nClick DEL to remove a line.\nClick RUN to execute.',
-			{ fontFamily: 'Silkscreen', fontSize: 14, color: '#cccccc' }
-		)
 	}
 
 	registerLineDragHandlers() {
@@ -421,9 +476,16 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 		const states = commands.map((cmd) => {
 			const container = this.add.container(columnLeft, currentY)
+			const initialSelections = (cmd.params || []).map((param) => {
+				if (!param || !Array.isArray(param.values) || !param.values.length) return 0
+				const defaultIndex = typeof param.defaultIndex === 'number'
+					? Phaser.Math.Clamp(param.defaultIndex, 0, param.values.length - 1)
+					: 0
+				return defaultIndex
+			})
 			const state = {
 				def: cmd,
-				selections: cmd.params.map(() => 0),
+				selections: initialSelections,
 				paramDisplays: [],
 				container,
 				interactiveEntries: [],
@@ -448,19 +510,23 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			let blockHeight = button.y + button.height
 			let blockWidth = Math.max(220, button.width + 20)
 
-			let paramX = button.x + button.width + 30
+			let paramX = button.x + 100
 			let paramY = button.y + 6
 			cmd.params.forEach((param, index) => {
 				const display = this.buildParamControl(paramX, paramY, state, index, param)
 				state.paramDisplays[index] = display
 				paramY += display.rowHeight + 4
-				blockHeight = Math.max(blockHeight, display.bottom + 10)
+				blockHeight = Math.max(blockHeight, display.bottom + 5)
 				blockWidth = Math.max(blockWidth, display.rightEdge + 20)
 				container.add(display.label)
 				container.add(display.valueText)
 				container.add(display.upArrow)
 				container.add(display.downArrow)
 			})
+			if (cmd.conditionalVisibility) {
+				state.conditionalVisibility = { ...cmd.conditionalVisibility }
+				this.applyConditionalVisibility(state)
+			}
 
 			const bg = this.add.rectangle(
 				0,
@@ -472,7 +538,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			).setStrokeStyle(2, 0x00ff9c, 0.8).setOrigin(0, 0)
 			container.addAt(bg, 0)
 
-			currentY += blockHeight + 30
+			currentY += blockHeight + 10
 			return state
 		})
 
@@ -485,7 +551,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const arrowStyle = { fontFamily: 'Silkscreen', fontSize: 12, color: '#ffffff', backgroundColor: '#333333', padding: { x: 2, y: 2 } }
 
 		const label = this.add.text(x, y, `${paramDef.name.toUpperCase()}:`, labelStyle)
-		const valueText = this.add.text(label.x + label.width + 12, y, '', valueStyle)
+		const valueText = this.add.text(x, y, '', valueStyle)
 
 		const upArrow = this.add.text(
 			valueText.x + valueText.width + 6,
@@ -515,11 +581,39 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		return display
 	}
 
+	setParamDisplayVisibility(display, visible) {
+		if (!display) return
+		display.label.setVisible(visible)
+		display.valueText.setVisible(visible)
+		display.upArrow.setVisible(visible)
+		display.downArrow.setVisible(visible)
+		if (display.upArrow.input) display.upArrow.input.enabled = visible
+		if (display.downArrow.input) display.downArrow.input.enabled = visible
+		display.hidden = !visible
+	}
+
+	applyConditionalVisibility(state) {
+		if (!state || !state.conditionalVisibility) return
+		const { comparatorIndex, valueIndex } = state.conditionalVisibility
+		if (typeof comparatorIndex !== 'number' || typeof valueIndex !== 'number') return
+		const comparatorValue = this.getParamValue(state, comparatorIndex)
+		const shouldHide = this.isComparatorBoolean(comparatorValue)
+		this.setParamDisplayVisibility(state.paramDisplays[valueIndex], !shouldHide)
+	}
+
 	adjustParam(state, paramIndex, delta) {
-		const values = state.def.params[paramIndex].values
-		const next = Phaser.Math.Wrap(state.selections[paramIndex] + delta, 0, values.length)
-		state.selections[paramIndex] = next
+		if (!state || !state.def || !Array.isArray(state.def.params)) return
+		const paramDef = state.def.params[paramIndex]
+		if (!paramDef || !Array.isArray(paramDef.values) || !paramDef.values.length) return
+		const values = paramDef.values
+		const current = Number.isInteger(state.selections[paramIndex]) ? state.selections[paramIndex] : 0
+		const length = values.length
+		const wrapped = ((current + delta) % length + length) % length
+		state.selections[paramIndex] = wrapped
 		this.syncParamDisplay(state, paramIndex, state.paramDisplays[paramIndex])
+		if (state && state.conditionalVisibility && paramIndex === state.conditionalVisibility.comparatorIndex) {
+			this.applyConditionalVisibility(state)
+		}
 	}
 
 	syncParamDisplay(state, paramIndex, display) {
@@ -539,12 +633,22 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	getParamValue(state, paramIndex) {
-		return state.def.params[paramIndex].values[state.selections[paramIndex]]
+		if (!state || !state.def || !Array.isArray(state.def.params)) return undefined
+		const paramDef = state.def.params[paramIndex]
+		if (!paramDef || !Array.isArray(paramDef.values) || !paramDef.values.length) return undefined
+		const selection = Number.isInteger(state.selections[paramIndex]) ? state.selections[paramIndex] : 0
+		const index = Phaser.Math.Clamp(selection, 0, paramDef.values.length - 1)
+		return paramDef.values[index]
 	}
 
 	formatParamValue(value) {
 		if (typeof value === 'string') return value.toUpperCase()
 		return `${value}`
+	}
+
+	isComparatorBoolean(value) {
+		if (typeof value !== 'string') return false
+		return BOOLEAN_COMPARATORS.has(value.toUpperCase())
 	}
 
 	toggleInteractiveTarget(target, enabled) {
@@ -613,6 +717,15 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		}
 		const values = state.def.params.map((_, idx) => this.getParamValue(state, idx))
 		const insertIndex = this.selectedLine === -1 ? this.program.length : this.selectedLine + 1
+		if (state.conditionalVisibility) {
+			const { comparatorIndex, valueIndex } = state.conditionalVisibility
+			if (typeof comparatorIndex === 'number' && typeof valueIndex === 'number') {
+				const comparatorValue = values[comparatorIndex]
+				if (this.isComparatorBoolean(comparatorValue)) {
+					values[valueIndex] = null
+				}
+			}
+		}
 		this.program.splice(insertIndex, 0, {
 			key: state.def.key,
 			values
@@ -1207,6 +1320,26 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	formatCommand(entry) {
+		if (entry.key === 'IF') {
+			const variable = this.formatParamValue(entry.values?.[0] ?? '?')
+			const comparatorRaw = entry.values?.[1]
+			const comparator = typeof comparatorRaw === 'string' ? comparatorRaw.toUpperCase() : `${comparatorRaw ?? ''}`
+			const needsValue = !this.isComparatorBoolean(comparator)
+			const valueText = needsValue ? ` ${this.formatParamValue(entry.values?.[2] ?? '?')}` : ''
+			return `IF ${variable} ${comparator}${valueText}`
+		}
+		if (entry.key === 'GOTO') {
+			const lineNumber = this.formatParamValue(entry.values?.[0] ?? '?')
+			const variable = this.formatParamValue(entry.values?.[1] ?? '?')
+			const comparatorRaw = entry.values?.[2]
+			const comparator = typeof comparatorRaw === 'string' ? comparatorRaw.toUpperCase() : `${comparatorRaw ?? ''}`
+			const needsValue = !this.isComparatorBoolean(comparator)
+			const valueText = needsValue ? ` ${this.formatParamValue(entry.values?.[3] ?? '?')}` : ''
+			return `GOTO ${lineNumber} IF ${variable} ${comparator}${valueText}`
+		}
+		if (entry.key === 'ELIF' || entry.key === 'ENDIF') {
+			return entry.key
+		}
 		if (!entry.values.length) return entry.key
 		if (entry.key === 'LET' && entry.values.length >= 2) {
 			return `${entry.key} ${this.formatParamValue(entry.values[0])} = ${this.formatParamValue(entry.values[1])}`
@@ -1215,11 +1348,107 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		return `${entry.key} ${params.join(' ')}`
 	}
 
+	buildConditionalMap(program) {
+		const map = new Map()
+		const stack = []
+		for (let index = 0; index < program.length; index++) {
+			const entry = program[index]
+			if (!entry) continue
+			const key = entry.key
+			if (key === 'IF') {
+				const frame = { ifIndex: index, elseIndex: null, endIndex: null }
+				stack.push(frame)
+				map.set(index, frame)
+			} else if (key === 'ELIF') {
+				if (!stack.length) {
+					return { error: `ELIF without matching IF (line ${(index + 1) * 10})` }
+				}
+				const current = stack[stack.length - 1]
+				if (current.elseIndex !== null) {
+					return { error: `Only one ELIF allowed for IF at line ${(current.ifIndex + 1) * 10}` }
+				}
+				current.elseIndex = index
+				map.set(index, current)
+			} else if (key === 'ENDIF') {
+				if (!stack.length) {
+					return { error: `ENDIF without matching IF (line ${(index + 1) * 10})` }
+				}
+				const current = stack.pop()
+				current.endIndex = index
+				map.set(index, current)
+			}
+		}
+		if (stack.length) {
+			const dangling = stack[stack.length - 1]
+			return { error: `IF at line ${(dangling.ifIndex + 1) * 10} missing ENDIF` }
+		}
+		return { map }
+	}
+
+	evaluateCondition(entry, variables, lineIndex) {
+		if (!entry || !Array.isArray(entry.values) || entry.values.length < 2) {
+			return { error: `IF command missing parameters (line ${(lineIndex + 1) * 10})` }
+		}
+		const [varName, comparatorRaw, rawValue] = entry.values
+		if (!this.isVariableName(varName)) {
+			return { error: `Invalid variable "${varName}" (line ${(lineIndex + 1) * 10})` }
+		}
+		if (typeof variables[varName] === 'undefined') {
+			return { error: `Variable "${varName}" is undefined (line ${(lineIndex + 1) * 10})` }
+		}
+		const comparator = typeof comparatorRaw === 'string'
+			? comparatorRaw.toUpperCase()
+			: `${comparatorRaw ?? ''}`
+		if (!CONDITIONAL_COMPARATOR_SET.has(comparator)) {
+			return { error: `Unknown comparator "${comparatorRaw}" (line ${(lineIndex + 1) * 10})` }
+		}
+
+		const variableValue = variables[varName]
+		if (this.isComparatorBoolean(comparator)) {
+			const result = comparator === 'TRUE' ? variableValue !== 0 : variableValue === 0
+			return { value: result }
+		}
+
+		const resolvedValue = this.resolveNumericValue(rawValue, variables, lineIndex)
+		if (resolvedValue.error) return resolvedValue
+		const compareValue = resolvedValue.value
+		let result = false
+		switch (comparator) {
+			case '==':
+				result = variableValue === compareValue
+				break
+			case '!=':
+				result = variableValue !== compareValue
+				break
+			case '<':
+				result = variableValue < compareValue
+				break
+			case '<=':
+				result = variableValue <= compareValue
+				break
+			case '>':
+				result = variableValue > compareValue
+				break
+			case '>=':
+				result = variableValue >= compareValue
+				break
+			default:
+				return { error: `Unsupported comparator "${comparator}" (line ${(lineIndex + 1) * 10})` }
+		}
+		return { value: result }
+	}
+
 	runProgram() {
 		if (!this.program.length) {
 			this.updateStatus('Program is empty. Add commands first.', 0xffae00)
 			return
 		}
+		const conditionalPlan = this.buildConditionalMap(this.program)
+		if (conditionalPlan.error) {
+			this.updateStatus(conditionalPlan.error, 0xff6388)
+			return
+		}
+		const conditionalMap = conditionalPlan.map || new Map()
 		this.playTypingSound()
 
 		let bits = new Array(BIT_COUNT).fill(0)
@@ -1227,8 +1456,6 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		let error = null
 		const variables = Object.create(null)
 		let pointer = 0
-		const gotoExecutionCounts = new Map()
-
 		while (pointer < this.program.length) {
 			const entry = this.program[pointer]
 			let advancePointer = true
@@ -1267,9 +1494,50 @@ export default class BasicConsoleScene extends Phaser.Scene {
 				case 'ROLL':
 					error = this.shiftBits(bits, entry.values[0], true, pointer)
 					break
+				case 'PEEK': {
+					const resolvedIndex = this.resolveNumericValue(entry.values[0], variables, pointer)
+					if (resolvedIndex.error) {
+						error = resolvedIndex.error
+						break
+					}
+					error = this.peekTargetBit(variables, resolvedIndex.value, entry.values[1], pointer)
+					break
+				}
 				case 'RETURN':
 				case 'PRINT':
 					output = bits.join('')
+					break
+				case 'IF': {
+					const mapping = conditionalMap.get(pointer)
+					if (!mapping || typeof mapping.endIndex !== 'number') {
+						error = `IF missing ENDIF (line ${(pointer + 1) * 10})`
+						break
+					}
+					const evaluation = this.evaluateCondition(entry, variables, pointer)
+					if (evaluation.error) {
+						error = evaluation.error
+						break
+					}
+					if (!evaluation.value) {
+						const target = typeof mapping.elseIndex === 'number'
+							? mapping.elseIndex + 1
+							: mapping.endIndex + 1
+						pointer = target
+						advancePointer = false
+					}
+					break
+				}
+				case 'ELIF': {
+					const mapping = conditionalMap.get(pointer)
+					if (!mapping || typeof mapping.endIndex !== 'number') {
+						error = `ELIF without matching IF (line ${(pointer + 1) * 10})`
+						break
+					}
+					pointer = mapping.endIndex + 1
+					advancePointer = false
+					break
+				}
+				case 'ENDIF':
 					break
 				case 'LET':
 					error = this.setVariable(variables, entry.values[0], entry.values[1], pointer)
@@ -1282,26 +1550,21 @@ export default class BasicConsoleScene extends Phaser.Scene {
 					error = this.toggleVariable(variables, entry.values[0], pointer)
 					break
 				case 'GOTO': {
-					const lineNumber = entry.values[0]
-					const iterationsResult = this.resolveGotoIterations(entry.values[1], pointer)
-					if (iterationsResult.error) {
-						error = iterationsResult.error
+					const conditionEntry = { values: [entry.values[1], entry.values[2], entry.values[3]] }
+					const evaluation = this.evaluateCondition(conditionEntry, variables, pointer)
+					if (evaluation.error) {
+						error = evaluation.error
 						break
 					}
-					const allowedIterations = iterationsResult.value
-					const usageKey = pointer
-					const used = gotoExecutionCounts.get(usageKey) || 0
-					if (used >= allowedIterations) {
-						break
+					if (evaluation.value) {
+						const jumpResult = this.resolveGoto(entry.values[0], pointer)
+						if (jumpResult.error) {
+							error = jumpResult.error
+							break
+						}
+						pointer = jumpResult.index
+						advancePointer = false
 					}
-					const jumpResult = this.resolveGoto(lineNumber, pointer)
-					if (jumpResult.error) {
-						error = jumpResult.error
-						break
-					}
-					gotoExecutionCounts.set(usageKey, used + 1)
-					pointer = jumpResult.index
-					advancePointer = false
 					break
 				}
 				default:
@@ -1420,6 +1683,22 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		return null
 	}
 
+	peekTargetBit(variables, index, name, lineIndex) {
+		if (!this.isVariableName(name)) {
+			return `Invalid variable "${name}" (line ${(lineIndex + 1) * 10})`
+		}
+		if (!this.isValidIndex(index)) {
+			return `Bit index must be 0-${BIT_COUNT - 1} (line ${(lineIndex + 1) * 10})`
+		}
+		const goal = typeof this.targetBits === 'string' ? this.targetBits : ''
+		const bitChar = goal.charAt(index)
+		if (bitChar !== '0' && bitChar !== '1') {
+			return `Goal bit ${index} is unavailable (line ${(lineIndex + 1) * 10})`
+		}
+		variables[name] = bitChar === '1' ? 1 : 0
+		return null
+	}
+
 	resolveGoto(lineNumber, currentLineIndex) {
 		if (!Number.isInteger(lineNumber) || lineNumber <= 0 || lineNumber % 10 !== 0) {
 			return { error: `Line number must be a positive multiple of 10 (line ${(currentLineIndex + 1) * 10})` }
@@ -1429,13 +1708,6 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			return { error: `Line ${lineNumber} does not exist (line ${(currentLineIndex + 1) * 10})` }
 		}
 		return { index: targetIndex }
-	}
-
-	resolveGotoIterations(rawValue, lineIndex) {
-		if (!Number.isInteger(rawValue) || rawValue <= 0) {
-			return { error: `GOTO iterations must be a positive integer (line ${(lineIndex + 1) * 10})` }
-		}
-		return { value: rawValue }
 	}
 
 	updateStatus(message, color = 0xffff66) {
