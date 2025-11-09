@@ -8,13 +8,18 @@ import CastleScene from './CastleScene'
 const config = {
 	type: Phaser.AUTO,
 	parent: 'app',
-	width: window.innerWidth,
-	height:window.innerHeight-4,
+	width: 1366,
+	height: 635,
+	scale: {
+		mode: Phaser.Scale.FIT, // Scale the canvas to fit the available space while maintaining aspect ratio
+		autoCenter: Phaser.Scale.CENTER_BOTH, // Center the game canvas horizontally and vertically
+		parent: 'game-container' // Optional: ID of the parent HTML element for the canvas
+	},
 	backgroundColor: '#000000',
 	physics: {
 		default: 'arcade',
 		arcade: {
-			gravity: {y:0},
+			gravity: { y: 0 },
 			//debug: true,
 		},
 	},

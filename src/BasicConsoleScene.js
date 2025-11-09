@@ -1,10 +1,11 @@
 import Phaser from 'phaser'
 
-const AVAILABLE_COMMANDS = ['POKE', 'SHIFT', 'RETURN', 'GOTO', 'VARIABLES', 'TOGGLE', 'IF', 'PEEK']
+const AVAILABLE_COMMANDS = ['POKE', 'NOT', 'SHIFT', 'RETURN', 'GOTO', 'VARIABLES', 'TOGGLE', 'IF', 'PEEK']
 const VARIABLE_NAMES = ['A', 'B', 'C', 'D']
 
 const BIT_COUNT = 8
 const LINE_NUMBER_VALUES = Array.from({ length: 20 }, (_, idx) => (idx + 1) * 10)
+const GOTO_LOOP_LIMIT_VALUES = Array.from({ length: 10 }, (_, idx) => idx + 1)
 const PROGRAM_STORAGE_KEY = 'basic-console-program'
 
 const TARGET_OUTPUTS = [
@@ -49,6 +50,9 @@ const CONDITIONAL_COMPARATOR_SET = new Set(CONDITIONAL_COMPARATORS.map((cmp) => 
 const BIT_INDEX_PARAM_VALUES = withVariableOptions(BIT_INDEX_VALUES)
 const BIT_VALUE_PARAM_VALUES = withVariableOptions(BIT_VALUE_VALUES)
 const GENERAL_NUMERIC_PARAM_VALUES = withVariableOptions(BIT_INDEX_VALUES)
+const DEFAULT_GOTO_MAX = 8
+
+const PROMPT_DEPTH = 5000
 
 const COMMANDS = [{
 	key: 'CLEAR',
@@ -62,6 +66,9 @@ const COMMANDS = [{
 		name: 'value',
 		values: BIT_VALUE_PARAM_VALUES,
 	}],
+}, {
+	key: 'NOT',
+	params: [],
 }, {
 	key: 'FLIP',
 	params: [{
@@ -107,7 +114,11 @@ const COMMANDS = [{
 	}, {
 		name: 'value',
 		values: GENERAL_NUMERIC_PARAM_VALUES,
-	}],
+}, {
+	name: 'max',
+	values: GOTO_LOOP_LIMIT_VALUES,
+	defaultIndex: 7,
+}],
 }, {
 	key: 'IF',
 	params: [{
@@ -256,6 +267,10 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			delay: 400,
 			loop: true,
 			callback: () => {
+				if (this.savePrompt) {
+					this.cursorBlock.setVisible(false)
+					return
+				}
 				if (this.selectedLine === -1) return
 				this.cursorVisible = !this.cursorVisible
 				this.cursorBlock.setVisible(this.cursorVisible)
@@ -296,7 +311,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		}
 		this.add.text(
 			20,
-			20,
+			5,
 			'Commands',
 			{ fontFamily: 'Silkscreen', fontSize: 22, color: '#ffffff' }
 		)
@@ -358,7 +373,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const screenBounds = this.screen.getBounds()
 		const columnLeft = screenBounds.right - 30
 		const availableCommands = COMMANDS.filter((cmd) => this.availableCommandKeys.includes(cmd.key))
-		const { states, nextY } = this.buildCommandPanel(columnLeft, 20, 'Monster Basic', availableCommands)
+		const { states, nextY } = this.buildCommandPanel(columnLeft, 5, 'Monster Basic', availableCommands)
 		this.commandStates = states
 	}
 
@@ -511,11 +526,11 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			let blockWidth = Math.max(220, button.width + 20)
 
 			let paramX = button.x + 100
-			let paramY = button.y + 6
+			let paramY = button.y + 2
 			cmd.params.forEach((param, index) => {
 				const display = this.buildParamControl(paramX, paramY, state, index, param)
 				state.paramDisplays[index] = display
-				paramY += display.rowHeight + 4
+				paramY += display.rowHeight
 				blockHeight = Math.max(blockHeight, display.bottom + 5)
 				blockWidth = Math.max(blockWidth, display.rightEdge + 20)
 				container.add(display.label)
@@ -833,8 +848,9 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			nameList.push(entryText)
 			currentY += 24
 		})
-		const container = this.add.container(0, 0, [background, title, ...nameList, hint])
-		container.setDepth(900)
+		const closeButton = this.createDialogCloseButton(posX + width - 24, posY + 8, () => this.closeLoadPrompt())
+		const container = this.add.container(0, 0, [background, title, closeButton, ...nameList, hint])
+		this.bringPromptToFront(container)
 		this.loadPrompt = {
 			container,
 			store,
@@ -854,6 +870,51 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		}
 	}
 
+	bringPromptToFront(container) {
+		if (!container) return
+		if (typeof container.setDepth === 'function') {
+			container.setDepth(PROMPT_DEPTH)
+		}
+		if (this.children && typeof this.children.bringToTop === 'function') {
+			this.children.bringToTop(container)
+		}
+	}
+
+	createDialogCloseButton(x, y, onClick) {
+		const closeStyle = { ...this.codeLineStyle, color: '#ff6388' }
+		const button = this.add.text(x, y, '✕', closeStyle)
+			.setInteractive({ useHandCursor: true })
+		button.on('pointerdown', () => {
+			this.playTypingSound()
+			if (typeof onClick === 'function') {
+				onClick()
+			}
+		})
+		return button
+	}
+
+	ensureSavePromptCursor() {
+		if (!this.savePrompt || !this.savePrompt.nameText) return null
+		const cursorHeight = this.codeLineStyle.fontSize + 3
+		let cursor = this.savePrompt.cursor
+		const cursorMissing = !cursor || !cursor.scene
+		if (cursorMissing) {
+			cursor = this.add.rectangle(0, 0, 10, cursorHeight, 0x00ff9c)
+				.setOrigin(0, 0)
+				.setAlpha(0.85)
+				.setVisible(true)
+			this.savePrompt.cursor = cursor
+			if (this.savePrompt.container) {
+				this.savePrompt.container.add(cursor)
+			}
+		}
+		if (this.savePrompt.container?.bringToTop) {
+			this.savePrompt.container.bringToTop(cursor)
+		}
+		this.bringPromptToFront(this.savePrompt.container)
+		return cursor
+	}
+
 	handleLoadPromptKey(event) {
 		if (!this.loadPrompt) return
 		if (event.key === 'Escape') {
@@ -864,6 +925,11 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	openSavePrompt(defaultName) {
+		if (this.savePrompt) return
+		console.log('[SavePrompt] opening', defaultName, 'existing?', !!this.savePrompt)
+		if (this.cursorBlock) {
+			this.cursorBlock.setVisible(false)
+		}
 		const width = 360
 		const height = 140
 		const posX = this.codeLineStartX + 26
@@ -874,8 +940,8 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const title = this.add.text(posX + 12, posY + 10, 'SAVE PROGRAM', { ...this.codeLineStyle })
 		const nameLabel = this.add.text(posX + 12, posY + 46, 'NAME:', { ...this.codeLineStyle })
 		const nameValue = this.add.text(nameLabel.x + nameLabel.width + 10, nameLabel.y, defaultName, { ...this.codeLineStyle })
-		const cursorHeight = this.codeLineStyle.fontSize + 3
-		const cursorBlock = this.add.rectangle(nameValue.x + nameValue.width + 2, nameValue.y + 2, 10, cursorHeight, 0x00ff9c)
+		const cursorHeight = Number(this.codeLineStyle.fontSize)
+		const cursorBlock = this.add.rectangle(nameValue.x + nameValue.width + 2, nameValue.y + 2, 10, 19, 0x00ff9c)
 			.setOrigin(0, 0)
 			.setAlpha(0.85)
 			.setVisible(true)
@@ -887,18 +953,34 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			hintStyle
 		)
 
-		const container = this.add.container(0, 0, [background, title, nameLabel, nameValue, cursorBlock, hint])
-		container.setDepth(1000)
+		const closeButton = this.createDialogCloseButton(posX + width - 24, posY + 8, () => this.closeSavePrompt())
+		const container = this.add.container(0, 0, [background, title, closeButton, nameLabel, nameValue, cursorBlock, hint])
+		if (container.bringToTop) {
+			container.bringToTop(cursorBlock)
+		}
+		this.bringPromptToFront(container)
 		const blinkEvent = this.time.addEvent({
 			delay: 400,
 			loop: true,
 			callback: () => {
 				if (!this.savePrompt) {
 					blinkEvent.remove()
+					console.log('Saveprompt blink timer removed')
 					return
 				}
+				const cursor = this.ensureSavePromptCursor()
+				if (!cursor) return
 				this.savePrompt.cursorVisible = !this.savePrompt.cursorVisible
-				this.savePrompt.cursor.setVisible(this.savePrompt.cursorVisible)
+				cursor.setVisible(this.savePrompt.cursorVisible)
+				console.log('[SavePrompt] cursor blink', {
+					visible: this.savePrompt.cursorVisible,
+					name: this.savePrompt.currentName,
+					cursorDepth: typeof cursor.depth !== 'undefined' ? cursor.depth : null,
+					containerDepth: this.savePrompt.container?.depth ?? null,
+					cursorX: cursor.x,
+					cursorY: cursor.y,
+					cursorBlock: cursorBlock,
+				})
 			},
 		})
 		this.savePrompt = {
@@ -909,7 +991,8 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			cursorVisible: true,
 			blinkEvent,
 		}
-		this.updateSavePromptCursor()
+		//this.updateSavePromptCursor()
+		console.log('[SavePrompt] savePrompt set', !!this.savePrompt)
 
 		if (this.input.keyboard) {
 			this.input.keyboard.on('keydown', this.handleSavePromptKey, this)
@@ -918,6 +1001,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	closeSavePrompt() {
 		if (!this.savePrompt) return
+		console.log('[SavePrompt] closing')
 		this.savePrompt.container.destroy(true)
 		if (this.savePrompt.blinkEvent) {
 			this.savePrompt.blinkEvent.remove()
@@ -926,6 +1010,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		if (this.input.keyboard) {
 			this.input.keyboard.off('keydown', this.handleSavePromptKey, this)
 		}
+		this.updateCursorPosition()
 	}
 
 	handleSavePromptKey(event) {
@@ -965,9 +1050,11 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	updateSavePromptCursor() {
 		if (!this.savePrompt) return
+		const cursor = this.ensureSavePromptCursor()
+		if (!cursor) return
 		const cursorX = this.savePrompt.nameText.x + this.savePrompt.nameText.width + 2
 		const cursorY = this.savePrompt.nameText.y + 2
-		this.savePrompt.cursor.setPosition(cursorX, cursorY)
+		cursor.setPosition(cursorX, cursorY)
 	}
 
 	commitSavePrompt() {
@@ -1211,8 +1298,10 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.deleteCursorActive = false
 		this.highlightActive = shouldHighlight
 		this.selectedLine = Phaser.Math.Clamp(index, 0, this.program.length - 1)
-		this.cursorVisible = true
-		this.cursorBlock.setVisible(true)
+		if (!this.savePrompt) {
+			this.cursorVisible = true
+			this.cursorBlock.setVisible(true)
+		}
 		this.updateLineHighlight()
 		this.updateCursorPosition()
 	}
@@ -1232,6 +1321,10 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	updateCursorPosition() {
+		if (this.savePrompt) {
+			if (this.cursorBlock) this.cursorBlock.setVisible(false)
+			return
+		}
 		if (this.selectedLine === -1 || !this.codeLines[this.selectedLine]) {
 			this.cursorBlock.setVisible(false)
 			return
@@ -1281,6 +1374,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		).setDepth(2000)
 		let remaining = text.length
 		const positionCursor = () => {
+			if (this.savePrompt) return
 			const bounds = overlay.getBounds()
 			this.cursorBlock.setVisible(true)
 			this.cursorBlock.setPosition(bounds.right + 6, bounds.top)
@@ -1335,7 +1429,8 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			const comparator = typeof comparatorRaw === 'string' ? comparatorRaw.toUpperCase() : `${comparatorRaw ?? ''}`
 			const needsValue = !this.isComparatorBoolean(comparator)
 			const valueText = needsValue ? ` ${this.formatParamValue(entry.values?.[3] ?? '?')}` : ''
-			return `GOTO ${lineNumber} IF ${variable} ${comparator}${valueText}`
+			const maxText = this.getGotoLimit(entry.values?.[4])
+			return `GOTO ${lineNumber} IF ${variable} ${comparator}${valueText} MAX ${maxText}`
 		}
 		if (entry.key === 'ELIF' || entry.key === 'ENDIF') {
 			return entry.key
@@ -1438,6 +1533,14 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		return { value: result }
 	}
 
+	getGotoLimit(rawValue) {
+		const numeric = Number(rawValue)
+		if (Number.isFinite(numeric) && numeric > 0) {
+			return Math.floor(numeric)
+		}
+		return DEFAULT_GOTO_MAX
+	}
+
 	runProgram() {
 		if (!this.program.length) {
 			this.updateStatus('Program is empty. Add commands first.', 0xffae00)
@@ -1449,6 +1552,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			return
 		}
 		const conditionalMap = conditionalPlan.map || new Map()
+		const gotoUsage = new Map()
 		this.playTypingSound()
 
 		let bits = new Array(BIT_COUNT).fill(0)
@@ -1478,6 +1582,11 @@ export default class BasicConsoleScene extends Phaser.Scene {
 					error = this.setBit(bits, resolvedIndex.value, resolvedValue.value, pointer)
 					break
 				}
+				case 'NOT':
+					for (let idx = 0; idx < bits.length; idx++) {
+						bits[idx] = bits[idx] ? 0 : 1
+					}
+					break
 				case 'FLIP':
 					{
 						const resolvedIndex = this.resolveNumericValue(entry.values[0], variables, pointer)
@@ -1557,6 +1666,13 @@ export default class BasicConsoleScene extends Phaser.Scene {
 						break
 					}
 					if (evaluation.value) {
+						const maxIterations = this.getGotoLimit(entry.values?.[4])
+						const usageKey = pointer
+						const used = gotoUsage.get(usageKey) || 0
+						if (used >= maxIterations) {
+							break
+						}
+						gotoUsage.set(usageKey, used + 1)
 						const jumpResult = this.resolveGoto(entry.values[0], pointer)
 						if (jumpResult.error) {
 							error = jumpResult.error

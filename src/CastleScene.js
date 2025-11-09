@@ -125,6 +125,17 @@ export default class CastleScene extends Phaser.Scene {
 			'Level 1',
 			{ ...titleFont, fontSize: 18, color: '#ff6388' }
 		)
+		this.bombIcon = this.add.text(
+			this.playfield.right - 34,
+			this.playfield.top - 38,
+			'💣',
+			{ fontFamily: 'sans-serif', fontSize: 26, color: '#ffffff' }
+		)
+			.setOrigin(0.5)
+			.setInteractive({ useHandCursor: true })
+			.setVisible(false)
+			.setDepth(5)
+		this.bombIcon.on('pointerdown', this.handleBombIconPointer, this)
 		this.hpText = this.add.text(
 			this.playfield.left,
 			this.playfield.top - 36,
@@ -143,6 +154,7 @@ export default class CastleScene extends Phaser.Scene {
 			'Bombs: 0',
 			{ fontFamily: 'Silkscreen', fontSize: 14, color: '#ffae00' }
 		).setOrigin(0.5, 0)
+		this.refreshBombIcon()
 	}
 
 	registerInput() {
@@ -864,6 +876,20 @@ export default class CastleScene extends Phaser.Scene {
 	updateBombText() {
 		if (!this.bombText) return
 		this.bombText.setText(`Bombs: ${this.bombCount}`)
+		this.refreshBombIcon()
+	}
+
+	refreshBombIcon() {
+		if (!this.bombIcon) return
+		const hasBombs = this.bombCount > 0
+		this.bombIcon.setVisible(hasBombs)
+	}
+
+	handleBombIconPointer() {
+		if (!this.bombIcon?.visible) return
+		if (this.bombCount > 0 && !this.bombProjectile) {
+			this.throwBomb()
+		}
 	}
 
 	findAutoAimDirection() {
