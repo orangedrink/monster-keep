@@ -60,6 +60,13 @@ export default class CastleScene extends Phaser.Scene {
 		}
 		this.weaponLevel = 0
 		this.projectileRange = BASE_PROJECTILE_RANGE
+		this.pendingPath = []
+		this.pathMoveDelay = 120
+		this.lastPathMove = 0
+		this.bombCount = 0
+		this.bombPickup = null
+		this.bombProjectile = null
+		this.trollShotLine = null
 		this.createScreen()
 		this.createPlayfield()
 		this.createHUD()
@@ -67,6 +74,7 @@ export default class CastleScene extends Phaser.Scene {
 		this.setFacing(1, 0)
 		this.generateMaze()
 		this.drawScene()
+		this.updateBombText()
 	}
 
 	createScreen() {
@@ -104,19 +112,19 @@ export default class CastleScene extends Phaser.Scene {
 	}
 
 	createHUD() {
-		const titleFont = { fontFamily: 'Silkscreen', fontSize: 22, color: '#00ff9c' }
+		const titleFont = { fontFamily: 'Silkscreen', fontSize: 18, color: '#00ff9c' }
 		this.titleText = this.add.text(
 			this.playfield.centerX,
 			this.playfield.top - 36,
-			'Neon Maze',
+			'Neon Castle',
 			titleFont
 		).setOrigin(0.5)
 		this.levelText = this.add.text(
-			this.playfield.right,
+			this.playfield.right-90,
 			this.playfield.top - 36,
 			'Level 1',
 			{ ...titleFont, fontSize: 18, color: '#ff6388' }
-		).setOrigin(1, 0.5)
+		)
 		this.hpText = this.add.text(
 			this.playfield.left,
 			this.playfield.top - 36,
@@ -125,35 +133,39 @@ export default class CastleScene extends Phaser.Scene {
 		)
 		this.weaponText = this.add.text(
 			this.playfield.centerX,
-			this.playfield.bottom + 20,
+			this.playfield.bottom,
 			'Weapon: Unarmed',
 			{ fontFamily: 'Silkscreen', fontSize: 16, color: '#00ff9c' }
+		).setOrigin(0.5, 0)
+		this.bombText = this.add.text(
+			this.playfield.centerX,
+			this.playfield.bottom + 18,
+			'Bombs: 0',
+			{ fontFamily: 'Silkscreen', fontSize: 14, color: '#ffae00' }
 		).setOrigin(0.5, 0)
 	}
 
 	registerInput() {
 		this.cursors = this.input.keyboard.createCursorKeys()
 		this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+		this.input.on('pointerdown', this.handlePointerSelect, this)
 	}
 
 	setFacing(dx = 0, dy = 0) {
 		if (!this.playerState) return
-		const vector = {
-			x: dx !== 0 ? Math.sign(dx) : this.playerState.facing.x,
-			y: dy !== 0 ? Math.sign(dy) : this.playerState.facing.y,
+		const vector = { ...this.playerState.facing }
+		if (dx !== 0 || dy !== 0) {
+			vector.x = Math.sign(dx)
+			vector.y = Math.sign(dy)
+			if (vector.x !== 0 && vector.y !== 0) {
+				// give priority to explicit vertical input when both registered
+				vector.x = 0
+			}
+			if (vector.x === 0 && vector.y === 0) {
+				vector.x = 1
+			}
+			this.playerState.facing = vector
 		}
-		// prevent diagonal stored states
-		if (vector.x !== 0 && vector.y !== 0) {
-			vector.y = 0
-		}
-		if (vector.x === 0 && vector.y === 0) {
-			vector.x = 1
-		}
-		this.playerState.facing = vector
-		if (vector.x === 1) this.playerState.direction = 'right'
-		else if (vector.x === -1) this.playerState.direction = 'left'
-		else if (vector.y === 1) this.playerState.direction = 'down'
-		else if (vector.y === -1) this.playerState.direction = 'up'
 	}
 
 	generateMaze() {
@@ -184,6 +196,11 @@ export default class CastleScene extends Phaser.Scene {
 		this.ensureSprites()
 		this.spawnTrolls()
 		this.placePowerup()
+		this.bombPickup = null
+		if (this.bombPickupSprite) {
+			this.bombPickupSprite.setVisible(false)
+		}
+		this.maybePlaceLevelBomb()
 		this.updateHpText()
 		this.updateWeaponText()
 	}
@@ -208,6 +225,21 @@ export default class CastleScene extends Phaser.Scene {
 	placePowerup() {
 		const spot = this.randomFloorForPowerup()
 		this.powerup = spot
+		this.powerupHue = Phaser.Math.Between(0, 359)
+	}
+
+	maybePlaceLevelBomb() {
+		if (this.level < 10) return
+		if (Phaser.Math.FloatBetween(0, 1) > 0.5) return
+		const spot = this.randomFloorForPowerup()
+		this.bombPickup = spot
+		if (this.bombPickupSprite) {
+			this.bombPickupSprite.setVisible(true)
+			this.bombPickupSprite.setPosition(
+				this.mapOrigin.x + spot.x * this.tileSize + this.tileSize / 2,
+				this.mapOrigin.y + spot.y * this.tileSize + this.tileSize / 2
+			)
+		}
 	}
 
 	randomFloorForPowerup() {
@@ -218,6 +250,8 @@ export default class CastleScene extends Phaser.Scene {
 			if (!this.isWalkable(x, y)) continue
 			if (x === this.player.x && y === this.player.y) continue
 			if (x === this.stairs.x && y === this.stairs.y) continue
+			if (this.powerup && x === this.powerup.x && y === this.powerup.y) continue
+			if (this.bombPickup && x === this.bombPickup.x && y === this.bombPickup.y) continue
 			if (this.trolls && this.trolls.some((t) => t.x === x && t.y === y)) continue
 			return { x, y }
 		}
@@ -231,28 +265,47 @@ export default class CastleScene extends Phaser.Scene {
 			this.updateKnightScale(this.playerSprite)
 		}
 		if (!this.stairsSprite) {
-			const size = this.tileSize * 0.6
-			this.stairsSprite = this.add.triangle(0, 0, 0, size, size, size, size / 2, 0, 0xffff66, 0.95)
-			this.stairsSprite.setDepth(2)
+			this.stairsSprite = this.createStairSprite()
 		}
 	}
 
 	update(time, delta) {
 		if (!this.cursors) return
 		let moved = false
-		if (Phaser.Input.Keyboard.JustDown(this.cursors.left)) moved = this.tryMove(-1, 0)
-		else if (Phaser.Input.Keyboard.JustDown(this.cursors.right)) moved = this.tryMove(1, 0)
-		else if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) moved = this.tryMove(0, -1)
-		else if (Phaser.Input.Keyboard.JustDown(this.cursors.down)) moved = this.tryMove(0, 1)
+		if (Phaser.Input.Keyboard.JustDown(this.cursors.left)) {
+			this.pendingPath = []
+			moved = this.tryMove(-1, 0)
+		} else if (Phaser.Input.Keyboard.JustDown(this.cursors.right)) {
+			this.pendingPath = []
+			moved = this.tryMove(1, 0)
+		} else if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
+			this.pendingPath = []
+			moved = this.tryMove(0, -1)
+		} else if (Phaser.Input.Keyboard.JustDown(this.cursors.down)) {
+			this.pendingPath = []
+			moved = this.tryMove(0, 1)
+		}
 
 		let fired = false
 		if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
-			fired = this.fireBolt()
+			if (this.bombCount > 0 && !this.bombProjectile) {
+				fired = this.throwBomb()
+			} else if (this.weaponLevel > 0) {
+				fired = this.fireBolt()
+			}
+		}
+		if (!fired && this.weaponLevel > 0 && !this.boltSprite) {
+			const autoDir = this.findAutoAimDirection()
+			if (autoDir) {
+				fired = this.fireBolt(autoDir)
+			}
 		}
 
+		const autoMoved = this.processQueuedPath(time)
 		const trollsMoved = this.updateTrolls(time)
 		const boltActive = this.updateBolt(delta)
-		if (moved || trollsMoved || fired || boltActive) {
+		const bombActive = this.updateBombProjectile(delta)
+		if (moved || trollsMoved || fired || boltActive || autoMoved || bombActive) {
 			this.drawScene()
 		}
 	}
@@ -260,17 +313,18 @@ export default class CastleScene extends Phaser.Scene {
 	tryMove(dx, dy) {
 		const nx = this.player.x + dx
 		const ny = this.player.y + dy
+		this.setFacing(dx, dy)
 		if (!this.isWalkable(nx, ny)) return false
 		const tile = this.grid[ny][nx]
 		this.player.x = nx
 		this.player.y = ny
-		this.setFacing(dx, dy)
-		if (tile === TILE_STAIRS) {
+		if (tile === TILE.STAIRS) {
 			this.level += 1
 			this.levelText.setText(`Level ${this.level}`)
 			this.generateMaze()
 		}
 		this.checkPowerup()
+		this.checkBombPickup()
 		return true
 	}
 
@@ -294,6 +348,31 @@ export default class CastleScene extends Phaser.Scene {
 		this.updateWeaponText()
 	}
 
+	handlePointerSelect(pointer) {
+		if (!this.playfield || !this.grid) return
+		if (!this.playfield.contains(pointer.x, pointer.y)) return
+		const tileX = Math.floor((pointer.x - this.mapOrigin.x) / this.tileSize)
+		const tileY = Math.floor((pointer.y - this.mapOrigin.y) / this.tileSize)
+		if (!this.isWalkable(tileX, tileY)) return
+		const path = this.findPath({ x: this.player.x, y: this.player.y }, { x: tileX, y: tileY }, 10)
+		if (path && path.length > 1) {
+			this.pendingPath = path.slice(1)
+			this.lastPathMove = 0
+		}
+	}
+
+	checkBombPickup() {
+		if (!this.bombPickup) return
+		if (this.player.x === this.bombPickup.x && this.player.y === this.bombPickup.y) {
+			this.bombPickup = null
+			if (this.bombPickupSprite) {
+				this.bombPickupSprite.setVisible(false)
+			}
+			this.bombCount++
+			this.updateBombText()
+		}
+	}
+
 	drawScene() {
 		this.graphics.clear()
 		this.graphics.lineStyle(2, 0x00ff9c, 0.85)
@@ -315,22 +394,54 @@ export default class CastleScene extends Phaser.Scene {
 			this.mapOrigin.y + this.stairs.y * this.tileSize + this.tileSize / 2
 		)
 		this.drawPowerup()
+		this.drawBomb()
 		this.drawTrolls()
+	}
+
+	processQueuedPath(time) {
+		if (!this.pendingPath?.length) return false
+		if (time - this.lastPathMove < this.pathMoveDelay) return false
+		const next = this.pendingPath.shift()
+		const dx = next.x - this.player.x
+		const dy = next.y - this.player.y
+		const moved = this.tryMove(dx, dy)
+		if (!moved) {
+			this.pendingPath = []
+			return false
+		}
+		this.lastPathMove = time
+		return true
 	}
 
 	drawPowerup() {
 		if (!this.powerupSprite) {
-			this.powerupSprite = this.add.star(0, 0, 5, this.tileSize * 0.12, this.tileSize * 0.25, 0xfff066, 0.95)
-			this.powerupSprite.setDepth(2)
+			this.powerupSprite = this.createGunSprite()
 		}
 		if (this.powerup) {
+			const color = Phaser.Display.Color.HSVToRGB((this.powerupHue % 360) / 360, 0.7, 1).color
 			this.powerupSprite.setVisible(true)
+			this.tintGunSprite(this.powerupSprite, color)
 			this.powerupSprite.setPosition(
 				this.mapOrigin.x + this.powerup.x * this.tileSize + this.tileSize / 2,
 				this.mapOrigin.y + this.powerup.y * this.tileSize + this.tileSize / 2
 			)
-		} else {
+		} else if (this.powerupSprite) {
 			this.powerupSprite.setVisible(false)
+		}
+	}
+
+	drawBomb() {
+		if (!this.bombPickupSprite) {
+			this.bombPickupSprite = this.createBombSprite()
+		}
+		if (this.bombPickup) {
+			this.bombPickupSprite.setVisible(true)
+			this.bombPickupSprite.setPosition(
+				this.mapOrigin.x + this.bombPickup.x * this.tileSize + this.tileSize / 2,
+				this.mapOrigin.y + this.bombPickup.y * this.tileSize + this.tileSize / 2
+			)
+		} else {
+			this.bombPickupSprite.setVisible(false)
 		}
 	}
 
@@ -362,6 +473,7 @@ export default class CastleScene extends Phaser.Scene {
 			container.add(part)
 		})
 		this.updateKnightScale(container)
+		this.tintKnightSprite(container, palette)
 		return container
 	}
 
@@ -387,6 +499,57 @@ export default class CastleScene extends Phaser.Scene {
 		rightArm.setPosition(scale * 0.35, scale * 0.4)
 	}
 
+	tintKnightSprite(sprite, palette) {
+		if (!sprite?.bodyParts) return
+		const { helmet, visor, body, trim, leftArm, rightArm, leftShoulder, rightShoulder } = sprite.bodyParts
+		helmet.setFillStyle(palette.helmet ?? helmet.fillColor)
+		visor.setFillStyle(palette.visor ?? visor.fillColor)
+		body.setFillStyle(palette.body ?? body.fillColor)
+		trim.setFillStyle(palette.trim ?? trim.fillColor)
+		leftArm.setFillStyle(palette.arm ?? leftArm.fillColor)
+		rightArm.setFillStyle(palette.arm ?? rightArm.fillColor)
+		leftShoulder.setFillStyle(palette.shoulder ?? leftShoulder.fillColor)
+		rightShoulder.setFillStyle(palette.shoulder ?? rightShoulder.fillColor)
+	}
+
+	createGunSprite() {
+		const container = this.add.container(0, 0)
+		container.setDepth(2)
+		container.parts = {
+			body: this.add.rectangle(0, 0, this.tileSize * 0.6, this.tileSize * 0.18, 0xffffff),
+			barrel: this.add.rectangle(this.tileSize * 0.25, -this.tileSize * 0.15, this.tileSize * 0.35, this.tileSize * 0.08, 0xffffff),
+			handle: this.add.rectangle(-this.tileSize * 0.2, this.tileSize * 0.22, this.tileSize * 0.12, this.tileSize * 0.28, 0xffffff),
+			muzzle: this.add.circle(this.tileSize * 0.43, -this.tileSize * 0.15, this.tileSize * 0.06, 0xffffff),
+		}
+		Object.values(container.parts).forEach((part) => {
+			part.setDepth(2)
+			container.add(part)
+		})
+		return container
+	}
+
+	tintGunSprite(sprite, color) {
+		if (!sprite?.parts) return
+		Object.values(sprite.parts).forEach((part) => part.setFillStyle(color, 1))
+	}
+
+	createStairSprite() {
+		const container = this.add.container(0, 0)
+		container.setDepth(2)
+		const stepHeight = this.tileSize * 0.12
+		const stepWidth = this.tileSize * 0.6
+		container.steps = []
+		for (let i = 0; i < 4; i++) {
+			const step = this.add.rectangle(0, i * stepHeight - stepHeight * 1.5, stepWidth - i * this.tileSize * 0.1, stepHeight * 0.9, 0x7b7f8b)
+			step.setStrokeStyle(1, 0x44474f, 0.8)
+			container.add(step)
+			container.steps.push(step)
+		}
+		const shading = this.add.rectangle(0, stepHeight * 0.5, stepWidth * 0.8, stepHeight * 0.5, 0x2a2d32, 0.6)
+		container.add(shading)
+		return container
+	}
+
 	spawnTrolls() {
 		this.trolls = []
 		const count = Math.min(1 + Math.floor(this.level / 2), 8)
@@ -397,6 +560,9 @@ export default class CastleScene extends Phaser.Scene {
 				y: spot.y,
 				delay: Math.max(350, TROLL_DELAY_BASE - this.level * TROLL_DELAY_STEP),
 				lastMove: 0,
+				isShooter: this.level >= 10 && Math.random() < 0.35,
+				shotDelay: 900,
+				lastShot: 0,
 			})
 		}
 	}
@@ -445,6 +611,9 @@ export default class CastleScene extends Phaser.Scene {
 				break
 			}
 			troll.lastMove = time
+			if (troll.isShooter) {
+				this.tryTrollShot(troll, time)
+			}
 		}
 		return moved
 	}
@@ -452,17 +621,25 @@ export default class CastleScene extends Phaser.Scene {
 	drawTrolls() {
 		if (!this.trollSprites) this.trollSprites = []
 		while (this.trollSprites.length < this.trolls.length) {
-			const sprite = this.createKnightSprite(
-				{
+			const troll = this.trolls[this.trollSprites.length] || {}
+			const palette = troll.isShooter
+				? {
+					helmet: 0xff5e5e,
+					visor: 0x2b0000,
+					body: 0xff8b8b,
+					trim: 0xffd0d0,
+					arm: 0xcc3434,
+					shoulder: 0xff5e5e,
+				}
+				: {
 					helmet: 0x4bd37e,
 					visor: 0x013b1d,
 					body: 0x3dff8a,
 					trim: 0xbfffd2,
 					arm: 0x1f9155,
 					shoulder: 0x4bd37e,
-				},
-				0.85
-			)
+				}
+			const sprite = this.createKnightSprite(palette, 0.85)
 			this.trollSprites.push(sprite)
 		}
 		this.trollSprites.forEach((sprite, index) => {
@@ -473,6 +650,26 @@ export default class CastleScene extends Phaser.Scene {
 			}
 			sprite.setVisible(true)
 			this.updateKnightScale(sprite)
+			this.tintKnightSprite(
+				sprite,
+				troll.isShooter
+					? {
+						helmet: 0xff5e5e,
+						visor: 0x2b0000,
+						body: 0xff8b8b,
+						trim: 0xffd0d0,
+						arm: 0xcc3434,
+						shoulder: 0xff5e5e,
+					}
+					: {
+						helmet: 0x4bd37e,
+						visor: 0x013b1d,
+						body: 0x3dff8a,
+						trim: 0xbfffd2,
+						arm: 0x1f9155,
+						shoulder: 0x4bd37e,
+					}
+			)
 			sprite.setPosition(
 				this.mapOrigin.x + troll.x * this.tileSize + this.tileSize / 2,
 				this.mapOrigin.y + troll.y * this.tileSize + this.tileSize / 2
@@ -518,8 +715,65 @@ export default class CastleScene extends Phaser.Scene {
 		}
 	}
 
-	fireBolt() {
-		const dir = this.playerState?.facing
+	updateBombProjectile(delta) {
+		if (!this.bombProjectile || !this.bombProjectile.active) return false
+		this.bombTravelled += delta * 0.01
+		const gridX = Math.floor((this.bombProjectile.x - this.mapOrigin.x) / this.tileSize)
+		const gridY = Math.floor((this.bombProjectile.y - this.mapOrigin.y) / this.tileSize)
+		if (gridX < 0 || gridY < 0 || gridX >= MAZE_COLS || gridY >= MAZE_ROWS) {
+			this.explodeBomb(gridX, gridY)
+			return false
+		}
+		if (this.grid[gridY][gridX] === TILE.WALL) {
+			this.grid[gridY][gridX] = TILE.FLOOR
+			this.explodeBomb(gridX, gridY)
+			return true
+		}
+		const troll = this.findTrollAt(gridX, gridY)
+		if (troll) {
+			this.removeTroll(troll)
+			this.explodeBomb(gridX, gridY)
+			return true
+		}
+		if (this.bombTravelled >= 6) {
+			this.explodeBomb(gridX, gridY)
+			return true
+		}
+		return true
+	}
+
+	destroyBombProjectile() {
+		if (this.bombProjectile) {
+			this.bombProjectile.destroy()
+			this.bombProjectile = null
+		}
+	}
+
+	explodeBomb(gridX, gridY) {
+		if (this.bombProjectile?.active) {
+			this.bombProjectile.destroy()
+		}
+		this.bombProjectile = null
+		const explosion = this.add.circle(
+			this.mapOrigin.x + gridX * this.tileSize + this.tileSize / 2,
+			this.mapOrigin.y + gridY * this.tileSize + this.tileSize / 2,
+			this.tileSize * 0.2,
+			0xffd166,
+			0.85
+		).setDepth(3)
+		this.tweens.add({
+			targets: explosion,
+			alpha: 0,
+			scale: 3,
+			duration: 250,
+			onComplete: () => explosion.destroy(),
+		})
+		this.drawTrolls()
+	}
+
+	fireBolt(overrideDirection = null) {
+		if (!this.weaponLevel) return false
+		const dir = overrideDirection || this.playerState?.facing
 		if (!dir) return false
 		if (dir.x && dir.y) {
 			// Prioritize last horizontal move if both somehow set.
@@ -558,6 +812,7 @@ export default class CastleScene extends Phaser.Scene {
 		if (idx !== -1) {
 			this.trolls.splice(idx, 1)
 		}
+		this.trySpawnBomb(troll)
 		this.drawTrolls()
 	}
 
@@ -577,6 +832,12 @@ export default class CastleScene extends Phaser.Scene {
 		this.player.hp = PLAYER_MAX_HP
 		this.weaponLevel = 0
 		this.projectileRange = BASE_PROJECTILE_RANGE
+		this.bombCount = 0
+		this.bombPickup = null
+		this.updateBombText()
+		if (this.bombPickupSprite) {
+			this.bombPickupSprite.setVisible(false)
+		}
 		this.levelText.setText('Level 1')
 		this.setFacing(1, 0)
 		this.updateWeaponText()
@@ -599,4 +860,187 @@ export default class CastleScene extends Phaser.Scene {
 		const name = WEAPON_NAMES[Math.min(this.weaponLevel, WEAPON_NAMES.length) - 1]
 		this.weaponText.setText(`Weapon: ${name} (Range ${this.projectileRange})`)
 	}
+
+	updateBombText() {
+		if (!this.bombText) return
+		this.bombText.setText(`Bombs: ${this.bombCount}`)
+	}
+
+	findAutoAimDirection() {
+		const directions = [
+			{ x: 1, y: 0 },
+			{ x: -1, y: 0 },
+			{ x: 0, y: 1 },
+			{ x: 0, y: -1 },
+		]
+		for (const dir of directions) {
+			for (let step = 1; step <= this.projectileRange; step++) {
+				const nx = this.player.x + dir.x * step
+				const ny = this.player.y + dir.y * step
+				if (nx < 0 || ny < 0 || nx >= MAZE_COLS || ny >= MAZE_ROWS) break
+				if (!this.isWalkable(nx, ny)) break
+				const troll = this.findTrollAt(nx, ny)
+				if (troll) {
+					return { x: dir.x, y: dir.y }
+				}
+			}
+		}
+		return null
+	}
+
+	findPath(start, goal, maxDistance) {
+		const heuristic = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y)
+		const key = (pos) => `${pos.x},${pos.y}`
+		const open = [{ pos: start, f: heuristic(start, goal) }]
+		const cameFrom = new Map()
+		const gScore = new Map([[key(start), 0]])
+
+		while (open.length) {
+			open.sort((a, b) => a.f - b.f)
+			const current = open.shift()
+			const currentKey = key(current.pos)
+			const currentG = gScore.get(currentKey) ?? Infinity
+			if (current.pos.x === goal.x && current.pos.y === goal.y) {
+				if (currentG > maxDistance) return null
+				return this.reconstructPath(cameFrom, current.pos)
+			}
+			for (const neighbor of this.getNeighbors(current.pos)) {
+				if (!this.isWalkable(neighbor.x, neighbor.y)) continue
+				const tentativeG = currentG + 1
+				if (tentativeG > maxDistance) continue
+				const neighborKey = key(neighbor)
+				if (tentativeG < (gScore.get(neighborKey) ?? Infinity)) {
+					cameFrom.set(neighborKey, current.pos)
+					gScore.set(neighborKey, tentativeG)
+					const existing = open.find((n) => n.pos.x === neighbor.x && n.pos.y === neighbor.y)
+					const fScore = tentativeG + heuristic(neighbor, goal)
+					if (existing) {
+						existing.f = Math.min(existing.f, fScore)
+					} else {
+						open.push({ pos: neighbor, f: fScore })
+					}
+				}
+			}
+		}
+		return null
+	}
+
+	getNeighbors(pos) {
+		return [
+			{ x: pos.x + 1, y: pos.y },
+			{ x: pos.x - 1, y: pos.y },
+			{ x: pos.x, y: pos.y + 1 },
+			{ x: pos.x, y: pos.y - 1 },
+		].filter((n) => n.x >= 0 && n.y >= 0 && n.x < MAZE_COLS && n.y < MAZE_ROWS)
+	}
+
+	reconstructPath(cameFrom, current) {
+		const path = [current]
+		let keyPos = `${current.x},${current.y}`
+		while (cameFrom.has(keyPos)) {
+			const prev = cameFrom.get(keyPos)
+			path.unshift(prev)
+			keyPos = `${prev.x},${prev.y}`
+		}
+		return path
+	}
+
+	tryTrollShot(troll, time) {
+		if (time - (troll.lastShot || 0) < troll.shotDelay) return
+		if (troll.x === this.player.x) {
+			const dy = Math.sign(this.player.y - troll.y)
+			const distance = Math.abs(this.player.y - troll.y)
+			if (dy !== 0 && distance <= 5 && this.lineClear(troll.x, troll.y, 0, dy, distance)) {
+				troll.lastShot = time
+				this.renderTrollShot(troll, { x: 0, y: dy }, distance)
+				this.applyDamage(Math.ceil(TROLL_DAMAGE / 2))
+			}
+		} else if (troll.y === this.player.y) {
+			const dx = Math.sign(this.player.x - troll.x)
+			const distance = Math.abs(this.player.x - troll.x)
+			if (dx !== 0 && distance <= 5 && this.lineClear(troll.x, troll.y, dx, 0, distance)) {
+				troll.lastShot = time
+				this.renderTrollShot(troll, { x: dx, y: 0 }, distance)
+				this.applyDamage(Math.ceil(TROLL_DAMAGE / 2))
+			}
+		}
+	}
+
+	lineClear(x, y, dx, dy, distance) {
+		for (let step = 1; step < distance; step++) {
+			const nx = x + dx * step
+			const ny = y + dy * step
+			if (nx < 0 || ny < 0 || nx >= MAZE_COLS || ny >= MAZE_ROWS) return false
+			if (this.grid[ny][nx] === TILE.WALL) return false
+		}
+		return true
+	}
+
+	renderTrollShot(troll, dir, distance) {
+		if (!this.trollShotLine) {
+			this.trollShotLine = this.add.line(0, 0, 0, 0, 0, 0, 0xff6655, 0.9)
+				.setOrigin(0, 0)
+				.setDepth(3)
+		}
+		const startX = this.mapOrigin.x + troll.x * this.tileSize + this.tileSize / 2
+		const startY = this.mapOrigin.y + troll.y * this.tileSize + this.tileSize / 2
+		const endX = startX + dir.x * this.tileSize * distance
+		const endY = startY + dir.y * this.tileSize * distance
+		this.trollShotLine.setTo(startX, startY, endX, endY)
+		this.trollShotLine.setVisible(true)
+		if (this.trollShotTimer) {
+			this.trollShotTimer.remove(false)
+		}
+		this.trollShotTimer = this.time.delayedCall(200, () => {
+			if (this.trollShotLine) this.trollShotLine.setVisible(false)
+		})
+	}
+
+	trySpawnBomb(troll) {
+		if (Phaser.Math.FloatBetween(0, 1) > 0.15) return
+		if (!this.bombPickupSprite) {
+			this.bombPickupSprite = this.createBombSprite()
+		}
+		this.bombPickup = { x: troll.x, y: troll.y }
+		this.bombPickupSprite.setVisible(true)
+		this.bombPickupSprite.setPosition(
+			this.mapOrigin.x + this.bombPickup.x * this.tileSize + this.tileSize / 2,
+			this.mapOrigin.y + this.bombPickup.y * this.tileSize + this.tileSize / 2
+		)
+	}
+
+	createBombSprite() {
+		const container = this.add.container(0, 0)
+		container.setDepth(2)
+		const shell = this.add.circle(0, 0, this.tileSize * 0.25, 0x111111)
+		const highlight = this.add.circle(-this.tileSize * 0.08, -this.tileSize * 0.08, this.tileSize * 0.08, 0xffffff, 0.6)
+		const fuse = this.add.rectangle(0, -this.tileSize * 0.3, this.tileSize * 0.1, this.tileSize * 0.2, 0xffd166)
+		container.add(shell)
+		container.add(highlight)
+		container.add(fuse)
+		container.setVisible(false)
+		return container
+	}
+
+	throwBomb() {
+		const dir = this.playerState?.facing
+		if (!dir || (!dir.x && !dir.y) || this.bombCount <= 0) return false
+		this.bombCount = Math.max(0, this.bombCount - 1)
+		this.updateBombText()
+		this.destroyBombProjectile()
+		this.bombProjectile = this.add.circle(0, 0, this.tileSize * 0.18, 0xffae00, 1).setDepth(3)
+		this.physics.add.existing(this.bombProjectile)
+		const body = this.bombProjectile.body
+		body.setAllowGravity(false)
+		body.setVelocity(dir.x * this.tileSize * 10, dir.y * this.tileSize * 10)
+		body.setCircle(this.tileSize * 0.18)
+		body.setOffset(-this.tileSize * 0.18, -this.tileSize * 0.18)
+		this.bombProjectile.setPosition(
+			this.mapOrigin.x + this.player.x * this.tileSize + this.tileSize / 2,
+			this.mapOrigin.y + this.player.y * this.tileSize + this.tileSize / 2
+		)
+		this.bombTravelled = 0
+		return true
+	}
+
 }

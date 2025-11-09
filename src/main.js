@@ -2,6 +2,8 @@ import Phaser from 'phaser'
 
 import TitleWorldScene from './TitleScene'
 import BasicConsoleScene from './BasicConsoleScene'
+import ArkanoidScene from './ArkanoidScene'
+import CastleScene from './CastleScene'
 
 const config = {
 	type: Phaser.AUTO,
@@ -13,7 +15,7 @@ const config = {
 		default: 'arcade',
 		arcade: {
 			gravity: {y:0},
-	//		debug: true,
+			//debug: true,
 		},
 	},
 	antialias: false,
