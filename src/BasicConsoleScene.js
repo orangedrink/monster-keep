@@ -373,7 +373,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const screenBounds = this.screen.getBounds()
 		const columnLeft = screenBounds.right - 30
 		const availableCommands = COMMANDS.filter((cmd) => this.availableCommandKeys.includes(cmd.key))
-		const { states, nextY } = this.buildCommandPanel(columnLeft, 5, 'Monster Basic', availableCommands)
+		const { states, nextY } = this.buildCommandPanel(columnLeft, 5, 'Operators', availableCommands)
 		this.commandStates = states
 	}
 
