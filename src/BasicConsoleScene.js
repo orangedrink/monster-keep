@@ -227,6 +227,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.savePrompt = null
 		this.loadPrompt = null
 		this.typingSoundKey = 'typing'
+		console.log(this.typingSoundKey);
 		if (!this.sound.get(this.typingSoundKey)) {
 			this.sound.add(this.typingSoundKey, { volume: 0.8 })
 		}
@@ -427,31 +428,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		}
 		intensityUniform.value = 0.2
 		opacityUniform.value = 0
-		this.crtOverlayFadeTween = this.tweens.timeline({
-			targets: opacityUniform,
-			tweens: [{
-				value: 0.2,
-				duration: 600,
-				ease: 'Sine.easeOut',
-			}, {
-				value: 0.04,
-				duration: 1200,
-				ease: 'Sine.easeIn',
-				delay: 200,
-			}],
-			onComplete: () => {
-				this.crtOverlayFadeTween = null
-				this.crtOverlayWaverTween = this.tweens.add({
-					targets: opacityUniform,
-					value: { from: 0.02, to: 0.16 },
-					duration: 500,
-					ease: 'Sine.easeInOut',
-					yoyo: true,
-					repeat: -1,
-					repeatDelay: 120,
-				})
-			}
-		})
+		
 	}
 
 	registerLineDragHandlers() {
@@ -1253,6 +1230,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	playTypingSound() {
+		console.log(this.typingSoundKey)
 		if (!this.typingSoundKey) return
 		const base = this.sound.get(this.typingSoundKey) || this.sound.add(this.typingSoundKey, { volume: 0.8 })
 		if (!base) return
