@@ -1,12 +1,13 @@
 import Phaser from 'phaser'
+import CrtOverlayShader from './shaders/CrtOverlayShader'
 
 const COLOR_PRIMARY = 0x00ff9c
-const COLOR_ACCENT = 0xff6388
+const COLOR_ACCENT = 0xf05a28
 const COLOR_WARNING = 0xffff66
 const SCREEN_INSETS = { left: 160, right: 240, top: 170, bottom: 220 }
 const PADDLE_COLOR = COLOR_PRIMARY
 const BALL_COLOR = COLOR_WARNING
-const BRICK_COLORS = [0xff6388, 0xffae00, 0x00b5ff, 0x8b5cf6]
+const BRICK_COLORS = [0xf05a28, 0xffae00, 0x00b5ff, 0x8b5cf6]
 const ASCII_FONT = {
 	fontFamily: 'Silkscreen',
 	fontSize: 18,
@@ -23,6 +24,9 @@ export default class ArkanoidScene extends Phaser.Scene {
 		if (!this.textures.exists('screen')) {
 			this.load.image('screen', 'topdown/screen.png')
 		}
+		if (!this.cache.shader.exists('crt-overlay')) {
+			this.cache.shader.add('crt-overlay', CrtOverlayShader)
+		}
 	}
 
 	create() {
@@ -37,6 +41,7 @@ export default class ArkanoidScene extends Phaser.Scene {
 		this.registerColliders()
 		this.registerInput()
 		this.resetBall()
+		this.createCrtOverlay()
 	}
 
 	createScreen() {
@@ -133,7 +138,7 @@ export default class ArkanoidScene extends Phaser.Scene {
 		this.lives = 3
 		const hudOffset = 30
 		this.scoreText = this.add.text(this.playfield.left, this.playfield.top - 32 + hudOffset, 'Score: 0', fontConfig)
-		this.livesText = this.add.text(this.playfield.right, this.playfield.top - 32 + hudOffset, 'Lives: 3', { ...fontConfig, color: '#ff6388' }).setOrigin(1, 0)
+		this.livesText = this.add.text(this.playfield.right, this.playfield.top - 32 + hudOffset, 'Lives: 3', { ...fontConfig, color: '#f05a28' }).setOrigin(1, 0)
 		this.statusText = this.add.text(this.playfield.centerX, this.playfield.bottom + 32, 'Click to launch', { ...fontConfig, color: '#ffff66' }).setOrigin(0.5, 0)
 	}
 
@@ -317,5 +322,77 @@ export default class ArkanoidScene extends Phaser.Scene {
 	colorToHex(value) {
 		const { r, g, b } = Phaser.Display.Color.IntegerToRGB(value)
 		return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+	}
+
+	createCrtOverlay() {
+		if (!this.game.renderer || this.game.renderer.type !== Phaser.WEBGL) return
+		if (!this.cache.shader.exists('crt-overlay')) return
+
+		const { width, height } = this.scale
+		this.crtOverlay = this.add.shader('crt-overlay', 0, 0, width, height)
+			.setOrigin(0, 0)
+			.setScrollFactor(0)
+			.setDepth(100)
+		this.crtOverlay.setDisplaySize(width, height)
+		this.animateCrtOverlay()
+
+		if (!this.resizeHandler) {
+			this.resizeHandler = this.handleResize.bind(this)
+			this.scale.on('resize', this.resizeHandler)
+			this.events.once('shutdown', () => {
+				this.scale.off('resize', this.resizeHandler)
+				this.resizeHandler = null
+			})
+		}
+	}
+
+	handleResize(gameSize) {
+		if (!this.crtOverlay) return
+		const width = gameSize?.width || this.scale.width
+		const height = gameSize?.height || this.scale.height
+		this.crtOverlay.setPosition(0, 0)
+		this.crtOverlay.setSize(width, height)
+		this.crtOverlay.setDisplaySize(width, height)
+	}
+
+	animateCrtOverlay() {
+		if (!this.crtOverlay) return
+		const opacityUniform = this.crtOverlay.getUniform('opacity')
+		const intensityUniform = this.crtOverlay.getUniform('intensity')
+		if (!opacityUniform || !intensityUniform) return
+		if (this.crtOverlayFadeTween) {
+			this.crtOverlayFadeTween.stop()
+		}
+		if (this.crtOverlayWaverTween) {
+			this.crtOverlayWaverTween.stop()
+			this.crtOverlayWaverTween = null
+		}
+		intensityUniform.value = 0.2
+		opacityUniform.value = 0
+		this.crtOverlayFadeTween = this.tweens.timeline({
+			targets: opacityUniform,
+			tweens: [{
+				value: 0.2,
+				duration: 600,
+				ease: 'Sine.easeOut',
+			}, {
+				value: 0.04,
+				duration: 1200,
+				ease: 'Sine.easeIn',
+				delay: 200,
+			}],
+			onComplete: () => {
+				this.crtOverlayFadeTween = null
+				this.crtOverlayWaverTween = this.tweens.add({
+					targets: opacityUniform,
+					value: { from: 0.02, to: 0.16 },
+					duration: 500,
+					ease: 'Sine.easeInOut',
+					yoyo: true,
+					repeat: -1,
+					repeatDelay: 120,
+				})
+			}
+		})
 	}
 }

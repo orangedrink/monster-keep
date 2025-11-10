@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import CrtOverlayShader from './shaders/CrtOverlayShader'
 
 const SCREEN_INSETS = { left: 0, right: 240, top: 170, bottom: 220 }
 const PLAYFIELD_SCALE = 0.572
@@ -49,6 +50,9 @@ export default class CastleScene extends Phaser.Scene {
 		if (!this.textures.exists('screen')) {
 			this.load.image('screen', 'topdown/screen.png')
 		}
+		if (!this.cache.shader.exists('crt-overlay')) {
+			this.cache.shader.add('crt-overlay', CrtOverlayShader)
+		}
 	}
 
 	create() {
@@ -75,6 +79,7 @@ export default class CastleScene extends Phaser.Scene {
 		this.generateMaze()
 		this.drawScene()
 		this.updateBombText()
+		this.createCrtOverlay()
 	}
 
 	createScreen() {
@@ -123,7 +128,7 @@ export default class CastleScene extends Phaser.Scene {
 			this.playfield.right-90,
 			this.playfield.top - 36,
 			'Level 1',
-			{ ...titleFont, fontSize: 18, color: '#ff6388' }
+			{ ...titleFont, fontSize: 18, color: '#f05a28' }
 		)
 		this.bombIcon = this.add.text(
 			this.playfield.right - 34,
@@ -1067,6 +1072,78 @@ export default class CastleScene extends Phaser.Scene {
 		)
 		this.bombTravelled = 0
 		return true
+	}
+
+	createCrtOverlay() {
+		if (!this.game.renderer || this.game.renderer.type !== Phaser.WEBGL) return
+		if (!this.cache.shader.exists('crt-overlay')) return
+
+		const { width, height } = this.scale
+		this.crtOverlay = this.add.shader('crt-overlay', 0, 0, width, height)
+			.setOrigin(0, 0)
+			.setScrollFactor(0)
+			.setDepth(100)
+		this.crtOverlay.setDisplaySize(width, height)
+		this.animateCrtOverlay()
+
+		if (!this.resizeHandler) {
+			this.resizeHandler = this.handleResize.bind(this)
+			this.scale.on('resize', this.resizeHandler)
+			this.events.once('shutdown', () => {
+				this.scale.off('resize', this.resizeHandler)
+				this.resizeHandler = null
+			})
+		}
+	}
+
+	handleResize(gameSize) {
+		if (!this.crtOverlay) return
+		const width = gameSize?.width || this.scale.width
+		const height = gameSize?.height || this.scale.height
+		this.crtOverlay.setPosition(0, 0)
+		this.crtOverlay.setSize(width, height)
+		this.crtOverlay.setDisplaySize(width, height)
+	}
+
+	animateCrtOverlay() {
+		if (!this.crtOverlay) return
+		const opacityUniform = this.crtOverlay.getUniform('opacity')
+		const intensityUniform = this.crtOverlay.getUniform('intensity')
+		if (!opacityUniform || !intensityUniform) return
+		if (this.crtOverlayFadeTween) {
+			this.crtOverlayFadeTween.stop()
+		}
+		if (this.crtOverlayWaverTween) {
+			this.crtOverlayWaverTween.stop()
+			this.crtOverlayWaverTween = null
+		}
+		intensityUniform.value = 0.2
+		opacityUniform.value = 0
+		this.crtOverlayFadeTween = this.tweens.timeline({
+			targets: opacityUniform,
+			tweens: [{
+				value: 0.2,
+				duration: 600,
+				ease: 'Sine.easeOut',
+			}, {
+				value: 0.04,
+				duration: 1200,
+				ease: 'Sine.easeIn',
+				delay: 200,
+			}],
+			onComplete: () => {
+				this.crtOverlayFadeTween = null
+				this.crtOverlayWaverTween = this.tweens.add({
+					targets: opacityUniform,
+					value: { from: 0.02, to: 0.16 },
+					duration: 500,
+					ease: 'Sine.easeInOut',
+					yoyo: true,
+					repeat: -1,
+					repeatDelay: 120,
+				})
+			}
+		})
 	}
 
 }

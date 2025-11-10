@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import CrtOverlayShader from './shaders/CrtOverlayShader'
 
 const AVAILABLE_COMMANDS = ['POKE', 'NOT', 'SHIFT', 'RETURN', 'GOTO', 'VARIABLES', 'TOGGLE', 'IF', 'PEEK']
 const VARIABLE_NAMES = ['A', 'B', 'C', 'D']
@@ -186,6 +187,9 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	preload() {
 		this.load.image('screen', 'topdown/screen.png')
 		this.load.audio('typing', 'assets/typing.wav')
+		if (!this.cache.shader.exists('crt-overlay')) {
+			this.cache.shader.add('crt-overlay', CrtOverlayShader)
+		}
 	}
 
 	create() {
@@ -218,6 +222,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.createButtons()
 		this.createVariablePalette()
 		this.createCommandPalette()
+		this.createCrtOverlay()
 		this.registerLineDragHandlers()
 		this.savePrompt = null
 		this.loadPrompt = null
@@ -330,7 +335,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.runButton.x + this.runButton.width + buttonSpacing,
 			this.runButton.y,
 			'DEL ⌫',
-			{ ...buttonStyle, backgroundColor: '#ff6388', color: '#fff' }
+			{ ...buttonStyle, backgroundColor: '#f05a28', color: '#fff' }
 		).setInteractive({ useHandCursor: true })
 		this.clearButton.on('pointerdown', () => this.deleteSelectedLine())
 		this.topButtonTargets.push(this.clearButton)
@@ -375,6 +380,78 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const availableCommands = COMMANDS.filter((cmd) => this.availableCommandKeys.includes(cmd.key))
 		const { states, nextY } = this.buildCommandPanel(columnLeft, 5, 'Statements', availableCommands)
 		this.commandStates = states
+	}
+
+	createCrtOverlay() {
+		if (!this.game.renderer || this.game.renderer.type !== Phaser.WEBGL) return
+		if (!this.cache.shader.exists('crt-overlay')) return
+
+		const { width, height } = this.scale
+		this.crtOverlay = this.add.shader('crt-overlay', 0, 0, width, height)
+			.setOrigin(0, 0)
+			.setScrollFactor(0)
+			.setDepth(100)
+		this.crtOverlay.setDisplaySize(width, height)
+		this.animateCrtOverlay()
+
+		if (!this.resizeHandler) {
+			this.resizeHandler = this.handleResize.bind(this)
+			this.scale.on('resize', this.resizeHandler)
+			this.events.once('shutdown', () => {
+				this.scale.off('resize', this.resizeHandler)
+				this.resizeHandler = null
+			})
+		}
+	}
+
+	handleResize(gameSize) {
+		if (!this.crtOverlay) return
+		const width = gameSize?.width || this.scale.width
+		const height = gameSize?.height || this.scale.height
+		this.crtOverlay.setPosition(0, 0)
+		this.crtOverlay.setSize(width, height)
+		this.crtOverlay.setDisplaySize(width, height)
+	}
+
+	animateCrtOverlay() {
+		if (!this.crtOverlay) return
+		const opacityUniform = this.crtOverlay.getUniform('opacity')
+		const intensityUniform = this.crtOverlay.getUniform('intensity')
+		if (!opacityUniform || !intensityUniform) return
+		if (this.crtOverlayFadeTween) {
+			this.crtOverlayFadeTween.stop()
+		}
+		if (this.crtOverlayWaverTween) {
+			this.crtOverlayWaverTween.stop()
+			this.crtOverlayWaverTween = null
+		}
+		intensityUniform.value = 0.2
+		opacityUniform.value = 0
+		this.crtOverlayFadeTween = this.tweens.timeline({
+			targets: opacityUniform,
+			tweens: [{
+				value: 0.2,
+				duration: 600,
+				ease: 'Sine.easeOut',
+			}, {
+				value: 0.04,
+				duration: 1200,
+				ease: 'Sine.easeIn',
+				delay: 200,
+			}],
+			onComplete: () => {
+				this.crtOverlayFadeTween = null
+				this.crtOverlayWaverTween = this.tweens.add({
+					targets: opacityUniform,
+					value: { from: 0.02, to: 0.16 },
+					duration: 500,
+					ease: 'Sine.easeInOut',
+					yoyo: true,
+					repeat: -1,
+					repeatDelay: 120,
+				})
+			}
+		})
 	}
 
 	registerLineDragHandlers() {
@@ -727,7 +804,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	addCommandLine(state) {
 		if (this.isAddAnimationActive) return
 		if (this.program.length >= this.memoryLimit) {
-			this.updateStatus(`Memory full. Limit is ${this.memoryLimit} lines.`, 0xff6388)
+			this.updateStatus(`Memory full. Limit is ${this.memoryLimit} lines.`, 0xf05a28)
 			return
 		}
 		const values = state.def.params.map((_, idx) => this.getParamValue(state, idx))
@@ -815,7 +892,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.openLoadPrompt(programNames, store)
 		} catch (error) {
 			console.error(error)
-			this.updateStatus('Failed to load program.', 0xff6388)
+			this.updateStatus('Failed to load program.', 0xf05a28)
 		}
 	}
 
@@ -881,7 +958,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	createDialogCloseButton(x, y, onClick) {
-		const closeStyle = { ...this.codeLineStyle, color: '#ff6388' }
+		const closeStyle = { ...this.codeLineStyle, color: '#f05a28' }
 		const button = this.add.text(x, y, '✕', closeStyle)
 			.setInteractive({ useHandCursor: true })
 		button.on('pointerdown', () => {
@@ -1073,7 +1150,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const store = this.loadPrompt.store
 		const savedProgram = store.programs[name]
 		if (!savedProgram) {
-			this.updateStatus(`Program "${name}" not found.`, 0xff6388)
+			this.updateStatus(`Program "${name}" not found.`, 0xf05a28)
 			this.closeLoadPrompt()
 			return
 		}
@@ -1115,7 +1192,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.updateStatus(`Program "${name}" saved.`, 0x00ff9c)
 		} catch (error) {
 			console.error(error)
-			this.updateStatus('Failed to save program.', 0xff6388)
+			this.updateStatus('Failed to save program.', 0xf05a28)
 		}
 		this.playTypingSound()
 	}
@@ -1370,7 +1447,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			this.codeLineStartX,
 			lineY,
 			text,
-			{ ...this.codeLineStyle, color: '#ff6388' }
+			{ ...this.codeLineStyle, color: '#f05a28' }
 		).setDepth(2000)
 		let remaining = text.length
 		const positionCursor = () => {
@@ -1548,7 +1625,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		}
 		const conditionalPlan = this.buildConditionalMap(this.program)
 		if (conditionalPlan.error) {
-			this.updateStatus(conditionalPlan.error, 0xff6388)
+			this.updateStatus(conditionalPlan.error, 0xf05a28)
 			return
 		}
 		const conditionalMap = conditionalPlan.map || new Map()
@@ -1694,7 +1771,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		}
 
 		if (error) {
-			this.updateStatus(error, 0xff6388)
+			this.updateStatus(error, 0xf05a28)
 			return
 		}
 
