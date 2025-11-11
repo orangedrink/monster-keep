@@ -10,6 +10,7 @@ export default class Slime extends Phaser.Physics.Arcade.Sprite {
 		this.home = new Phaser.Math.Vector2(x, y)
 		this.wanderRadius = (config.wanderRadius ?? 60) * this.scene.gameScale
 		this.moveDuration = config.moveDuration ?? 1600
+		this.chaseSpeed = (config.chaseSpeed ?? 16) * this.scene.gameScale
 		this.baseDepth = config.depth ?? 0.9
 
 		this.scene.physics.add.existing(this)
@@ -23,7 +24,7 @@ export default class Slime extends Phaser.Physics.Arcade.Sprite {
 		this.setPipeline('Light2D')
 		this.play({ key: 'idle', repeat: -1 })
 		this.currentAnim = 'idle'
-		this.scheduleNextMove()
+		this.setVelocity(0, 0)
 	}
 
 	scheduleNextMove() {
@@ -65,18 +66,7 @@ export default class Slime extends Phaser.Physics.Arcade.Sprite {
 	}
 
 	update() {
-		if (this.scene.lights && !this.light) {
-			this.light = this.scene.lights.addLight(
-				this.x,
-				this.y,
-				50 * this.scene.gameScale,
-				0x66ff88,
-				0.35,
-			)
-		}
-		if (this.light) {
-			this.light.setPosition(this.x, this.y)
-		}
+		this.updateChaseBehavior()
 	}
 
 	playMovementAnim(dx, dy) {
@@ -97,11 +87,29 @@ export default class Slime extends Phaser.Physics.Arcade.Sprite {
 		this.play({ key, repeat: -1 })
 	}
 
-	destroy(fromScene) {
-		if (this.light) {
-			this.scene.lights.removeLight(this.light)
-			this.light = null
+	updateChaseBehavior() {
+		const doctor = this.scene?.doctor
+		if (!doctor) {
+			this.setVelocity(0, 0)
+			this.setAnimation('idle')
+			return
 		}
+		const dx = doctor.x - this.x
+		const dy = doctor.y - this.y
+		const distance = Math.hypot(dx, dy)
+		if (!distance || distance < 2) {
+			this.setVelocity(0, 0)
+			this.setAnimation('idle')
+			return
+		}
+		const speed = this.chaseSpeed
+		const vx = (dx / distance) * speed
+		const vy = (dy / distance) * speed
+		this.setVelocity(vx, vy)
+		this.playMovementAnim(vx, vy)
+	}
+
+	destroy(fromScene) {
 		if (this.moveTween) {
 			this.moveTween.stop()
 			this.moveTween = null

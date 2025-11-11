@@ -179,7 +179,17 @@ export default class Doctor extends Phaser.Physics.Arcade.Sprite {
         this.setSize(20, 25)
         this.scene.cameras.main.startFollow(this);
 
-		this.scene.input.on('pointerdown', (pointer)=>{
+		this.scene.input.on('pointerdown', (pointer, currentlyOver = [])=>{
+			const blockedByUi = currentlyOver.some((obj) => obj?.getData?.('blocksPointerRouting'))
+			if (blockedByUi) {
+				return
+			}
+			if (typeof this.scene.handleTargetSelection === 'function' && this.scene.handleTargetSelection(pointer)) {
+				return
+			}
+			if (typeof this.scene.handleSpellPointer === 'function' && this.scene.handleSpellPointer(pointer)) {
+				return
+			}
 			const worldpoint = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y)
 			this.addDestinationPoint({x: worldpoint.x, y:worldpoint.y})
         });

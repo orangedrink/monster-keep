@@ -19,6 +19,7 @@ export default class Menu extends Phaser.Physics.Arcade.Sprite {
 		this.alpha=0
 		this.setOrigin(1,0)
 		this.setInteractive()
+		this.setData('blocksPointerRouting', true)
 		this.on('pointerdown',(pointer)=>{
 			this.scene.doctor.paused=true
             this.menutext.y=-100

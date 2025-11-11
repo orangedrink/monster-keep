@@ -341,11 +341,14 @@ export default class BaseScene extends Phaser.Scene {
 			icon = spell.createIcon(this, { size, container })
 		}
 		if (!icon) {
-			icon = this.add.circle(size / 2, size / 2, iconRadius, spell.iconColor || 0xffc857, 0.85)
+			icon = this.add.circle(size / 2, size / 2, iconRadius, spell.iconColor || 0xffc857, 1)
 			icon.setBlendMode(Phaser.BlendModes.ADD)
 		} else if (icon.setBlendMode) {
 			icon.setBlendMode(Phaser.BlendModes.ADD)
 		}
+		const readyGlow = this.add.circle(size / 2, size / 2, iconRadius + 5, 0xfff2a0, 0.22)
+		readyGlow.setBlendMode(Phaser.BlendModes.ADD)
+		readyGlow.setVisible(false)
 		const labelText = spell.label || spell.key
 		const label = this.add.text(size / 2, size + 4, labelText, {
 			fontSize: `${Math.max(10, 12 * this.gameScale)}px`,
@@ -354,7 +357,7 @@ export default class BaseScene extends Phaser.Scene {
 		})
 		label.setOrigin(0.5, 0)
 		label.setDepth(151)
-		container.add([bg, icon, label])
+		container.add([bg, readyGlow, icon, label])
 		const baseHeight = size + label.height + 4
 		container.setSize(size, baseHeight)
 
@@ -372,6 +375,9 @@ export default class BaseScene extends Phaser.Scene {
 		container.setData('spell', spell)
 		container.setData('bg', bg)
 		container.setData('icon', icon)
+		container.setData('readyGlow', readyGlow)
+		container.setData('iconBaseScaleX', icon?.scaleX ?? 1)
+		container.setData('iconBaseScaleY', icon?.scaleY ?? 1)
 		container.setData('buttonSize', size)
 		container.setData('buttonHeight', size + label.height + 4)
 		container.setData('blocksPointerRouting', true)
@@ -407,9 +413,6 @@ export default class BaseScene extends Phaser.Scene {
 			const icon = btn.getData('icon')
 			const isSelected = spell.key === this.activeSpellKey
 			bg.setStrokeStyle(2 * (isSelected ? 1.5 : 1), isSelected ? 0xfff2a0 : 0xffffff, isSelected ? 0.9 : 0.25)
-			if (icon?.setScale) {
-				icon.setScale(isSelected ? 1.1 : 1)
-			}
 			btn.setAlpha(this.menu?.alpha ?? 1)
 		})
 	}

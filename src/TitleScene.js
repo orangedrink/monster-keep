@@ -3,8 +3,7 @@ import BaseScene from './BaseScene.js'
 import Dialog from './ui/Dialog.js'
 import createFireballEffect from './effects/createFireballEffect.js'
 import Slime from './topdown/sprites/Slime.js'
-const FIREBALL_PROJECTILE_KEY = 'fireballProjectile'
-const FIREBALL_PROJECTILE_ANIM_KEY = `${FIREBALL_PROJECTILE_KEY}_idle`
+import FireballSprite, { FIREBALL_PROJECTILE_KEY } from './spells/FireballSprite.js'
 var levelScripts = [
 	{
 		trigger: (scene) => {
@@ -85,31 +84,29 @@ const titleSpells = [{
 	label: 'Fireball',
 	iconColor: 0xff6b18,
 	autoTargetNearestEnemy: true,
-	cooldownMs: 700,
+	cooldownMs: 300,
 	createIcon: (scene, { size }) => {
-		ensureFireballAnimation(scene)
 		const iconScale = (size / 44) * 0.7
-		const icon = scene.add.sprite(size / 2, size / 2, FIREBALL_PROJECTILE_KEY)
-			.setScale(iconScale)
-			.setBlendMode(Phaser.BlendModes.ADD)
-		icon.anims?.play(FIREBALL_PROJECTILE_ANIM_KEY)
-		icon.anims?.setRepeat(-1)
-		icon.setData?.('autoPlayAnimKey', FIREBALL_PROJECTILE_ANIM_KEY)
-		icon.setData?.('autoPlayRepeat', -1)
+		const icon = new FireballSprite(scene, {
+			x: size / 2,
+			y: size / 2,
+			scale: iconScale,
+			depth: 151,
+		})
+		icon.create()
 		return icon
 	},
 	onCast: (scene, target) => {
 		const start = { x: scene.doctor?.x ?? target.x, y: scene.doctor?.y ?? target.y }
 		const fireProjectile = (delay = 0) => {
-			ensureFireballAnimation(scene)
-			const projectile = scene.add.sprite(start.x, start.y, FIREBALL_PROJECTILE_KEY)
-			const baseScale = 0.32 * scene.gameScale
-			projectile
-				.setDepth(190)
-				.setScale(baseScale)
-				.setBlendMode(Phaser.BlendModes.ADD)
-			projectile.anims?.play(FIREBALL_PROJECTILE_ANIM_KEY)
-			projectile.anims?.setRepeat(-1)
+			const baseScale = .65 * scene.gameScale
+			const projectile = new FireballSprite(scene, {
+				x: start.x,
+				y: start.y,
+				scale: baseScale,
+				depth: 190,
+			})
+			projectile.create()
 			const finishProjectile = () => {
 				createFireballEffect(scene, { x: target.x, y: target.y })
 				scene.createSmokeEffect(target.x, target.y, 2, 900)
@@ -127,10 +124,17 @@ const titleSpells = [{
 			}
 			direction.normalize()
 			const perp = new Phaser.Math.Vector2(-direction.y, direction.x)
-			const angleRad = Phaser.Math.Angle.Between(start.x, start.y, target.x, target.y)
-			projectile.setRotation(angleRad)
+			const initialAngle = Phaser.Math.Angle.Between(0, 0, direction.x, direction.y)
+			projectile.setRotation(initialAngle)
 			const maxOffset = distance * 0.15
-			const offsetMag = Phaser.Math.FloatBetween(-maxOffset, maxOffset)
+			let offsetMag
+			console.log(initialAngle)
+			const playerX = scene.doctor?.x ?? start.x
+			if (target.x < playerX) {
+				offsetMag = Phaser.Math.FloatBetween(0, maxOffset)
+			} else {
+				offsetMag = Phaser.Math.FloatBetween(-maxOffset, 0)
+			}
 			const speed = Phaser.Math.Between(460, 530)
 			if (distance < 4) {
 				scene.time.delayedCall(delay, finishProjectile)
@@ -145,6 +149,9 @@ const titleSpells = [{
 			const perpX = perp.x
 			const perpY = perp.y
 			let lastSmokeEmit = 0
+			let lastPosX = startX
+			let lastPosY = startY
+			let lastAngle = initialAngle
 			const updateHandler = (time, delta) => {
 				elapsed += delta
 				const progress = Math.min(1, elapsed / travelTimeMs)
@@ -153,6 +160,14 @@ const titleSpells = [{
 				const posX = startX + dirX * traveled + perpX * wobble
 				const posY = startY + dirY * traveled + perpY * wobble
 				projectile.setPosition(posX, posY)
+				const deltaX = posX - lastPosX
+				const deltaY = posY - lastPosY
+				if (deltaX !== 0 || deltaY !== 0) {
+					lastAngle = Phaser.Math.Angle.Between(0, 0, deltaX, deltaY)
+					projectile.setRotation(lastAngle)
+				}
+				lastPosX = posX
+				lastPosY = posY
 				if (elapsed - lastSmokeEmit >= 60) {
 					scene.createSmokeEffect(posX, posY, .75, 600)
 					scene.createSparkEffect(posX, posY, 1, 3600)
@@ -167,7 +182,9 @@ const titleSpells = [{
 				scene.events.on(Phaser.Scenes.Events.UPDATE, updateHandler)
 			})
 		}
-		[0,1,2].forEach((i) => fireProjectile(i * 90))
+		for(let i = 0; i<3; i++) {
+			fireProjectile(i * 90)
+		}
 	},
 }]
 
@@ -182,7 +199,10 @@ export default class TitleScene extends BaseScene {
 
 	preload() {
 		super.preload()
-		this.load.aseprite(FIREBALL_PROJECTILE_KEY, 'condo/spells/fireball.png', 'condo/spells/fireball.json')
+		this.load.spritesheet(FIREBALL_PROJECTILE_KEY, 'condo/spells/fireball.png', {
+			frameWidth: 44,
+			frameHeight: 13,
+		})
 	}
 
 	getEnemySpawnerConfigs() {
@@ -202,12 +222,12 @@ export default class TitleScene extends BaseScene {
 			{
 				...baseConfig,
 				key: 'slime-east',
-				position: { ...baseConfig.position, offsetX: 640 },
+				position: { ...baseConfig.position, offsetX: 240 },
 			},
 			{
 				...baseConfig,
 				key: 'slime-west',
-				position: { ...baseConfig.position, offsetX: -640 },
+				position: { ...baseConfig.position, offsetX: -240 },
 			},
 		]
 	}
@@ -224,14 +244,4 @@ function createImpactLight(scene, x, y) {
 		ease: 'Quad.easeOut',
 		onComplete: () => scene.lights.removeLight(light),
 	})
-}
-
-function ensureFireballAnimation(scene) {
-	if (!scene?.anims) return
-	if (scene.anims.exists(FIREBALL_PROJECTILE_ANIM_KEY)) return
-	const animations = scene.anims.createFromAseprite(FIREBALL_PROJECTILE_KEY) || []
-	const anim = animations.find((a) => a.key === FIREBALL_PROJECTILE_ANIM_KEY)
-	if (anim) {
-		anim.frameRate = anim.frameRate || 12
-	}
 }

@@ -6,7 +6,7 @@ export function ensureFireballParticleTexture(scene) {
 	if (scene.textures.exists(FIREBALL_PARTICLE_TEXTURE_KEY)) return FIREBALL_PARTICLE_TEXTURE_KEY
 	const gfx = scene.make.graphics({ add: false })
 	const width = 48
-	const height = 12
+	const height = 2
 	gfx.fillStyle(0xfff8da, 1)
 	gfx.fillRoundedRect(0, 0, width, height, height * 2)
 	gfx.fillStyle(0xffc857, 1)
