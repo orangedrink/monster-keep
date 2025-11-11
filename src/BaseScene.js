@@ -5,6 +5,8 @@ import Slime from './topdown/sprites/Slime.js'
 import Menu from './ui/Menu.js'
 import createSmokeEffect from './effects/createSmokeEffect.js'
 import createSparkEffect from './effects/createSparkEffect.js'
+import createFireballEffect, { createImpactLight } from './effects/createFireballEffect.js'
+import FireballSprite from './spells/FireballSprite.js'
 
 const TITLE_SPRITE_DATA = [{
 	name: 'doctor',
@@ -22,6 +24,116 @@ const TITLE_SPRITE_DATA = [{
 	frameHeight: 16
 }]
 
+const SPELL_LIBRARY = {
+	fireball: {
+		key: 'fireball',
+		label: 'Fireball',
+		iconColor: 0xff6b18,
+		autoTargetNearestEnemy: true,
+		cooldownMs: 500,
+		createIcon: (scene, { size }) => {
+			const iconScale = (size / 44) * 0.7
+			const icon = new FireballSprite(scene, {
+				x: size / 2,
+				y: size / 2,
+				scale: iconScale,
+				depth: 151,
+			})
+			icon.create()
+			return icon
+		},
+		onCast: (scene, target) => {
+			const start = { x: scene.doctor?.x ?? target.x, y: scene.doctor?.y ?? target.y }
+			const fireProjectile = (delay = 0) => {
+				const baseScale = 0.65 * scene.gameScale
+				const projectile = new FireballSprite(scene, {
+					x: start.x,
+					y: start.y,
+					scale: baseScale,
+					depth: 190,
+				})
+				projectile.create()
+				const finishProjectile = () => {
+					createFireballEffect(scene, { x: target.x, y: target.y })
+					scene.createSmokeEffect(target.x, target.y, 2, 900)
+					createImpactLight(scene, target.x, target.y)
+					scene.destroyEnemiesAt(target.x, target.y, 26 * scene.gameScale)
+					projectile.destroy()
+				}
+
+				const startVec = new Phaser.Math.Vector2(start.x, start.y)
+				const targetVec = new Phaser.Math.Vector2(target.x, target.y)
+				const direction = targetVec.clone().subtract(startVec)
+				const distance = direction.length()
+				if (distance === 0) {
+					direction.set(1, 0)
+				}
+				direction.normalize()
+				const perp = new Phaser.Math.Vector2(-direction.y, direction.x)
+				const initialAngle = Phaser.Math.Angle.Between(0, 0, direction.x, direction.y)
+				projectile.setRotation(initialAngle)
+				const maxOffset = distance * 0.15
+				let offsetMag
+				const playerX = scene.doctor?.x ?? start.x
+				if (target.x < playerX) {
+					offsetMag = Phaser.Math.FloatBetween(0, maxOffset)
+				} else {
+					offsetMag = Phaser.Math.FloatBetween(-maxOffset, 0)
+				}
+				const speed = Phaser.Math.Between(460, 530)
+				if (distance < 4) {
+					scene.time.delayedCall(delay, finishProjectile)
+					return
+				}
+				const travelTimeMs = (distance / speed) * 1000
+				let elapsed = 0
+				const startX = startVec.x
+				const startY = startVec.y
+				const dirX = direction.x
+				const dirY = direction.y
+				const perpX = perp.x
+				const perpY = perp.y
+				let lastSmokeEmit = 0
+				let lastPosX = startX
+				let lastPosY = startY
+				let lastAngle = initialAngle
+				const updateHandler = (time, delta) => {
+					elapsed += delta
+					const progress = Math.min(1, elapsed / travelTimeMs)
+					const traveled = distance * progress
+					const wobble = Math.sin(progress * Math.PI) * offsetMag
+					const posX = startX + dirX * traveled + perpX * wobble
+					const posY = startY + dirY * traveled + perpY * wobble
+					projectile.setPosition(posX, posY)
+					const deltaX = posX - lastPosX
+					const deltaY = posY - lastPosY
+					if (deltaX !== 0 || deltaY !== 0) {
+						lastAngle = Phaser.Math.Angle.Between(0, 0, deltaX, deltaY)
+						projectile.setRotation(lastAngle)
+					}
+					lastPosX = posX
+					lastPosY = posY
+					if (elapsed - lastSmokeEmit >= 60) {
+						scene.createSmokeEffect(posX, posY, 0.75, 600)
+						scene.createSparkEffect(posX, posY, 1, 3600)
+						lastSmokeEmit = elapsed
+					}
+					if (progress >= 1) {
+						scene.events.off(Phaser.Scenes.Events.UPDATE, updateHandler)
+						finishProjectile()
+					}
+				}
+				scene.time.delayedCall(delay, () => {
+					scene.events.on(Phaser.Scenes.Events.UPDATE, updateHandler)
+				})
+			}
+			for (let i = 0; i < 3; i++) {
+				fireProjectile(i * 90)
+			}
+		},
+	},
+}
+
 export default class BaseScene extends Phaser.Scene {
 	gameScale = Math.round(window.innerWidth / 600)
 	gamestate = {}
@@ -32,7 +144,9 @@ export default class BaseScene extends Phaser.Scene {
 		this.levelData = props.levelData;
 		this.levelScripts = props.levelScripts;
 		this.triggers = {};
-		this.spellDefinitions = props.spells || [];
+		this.spellKeys = props.spells || [];
+		this.spellDefinitions = [];
+		this.tileSpawnerPoints = props.tileSpawners || [];
 		this.spellButtons = [];
 		this.activeSpellKey = null;
 		this.spellCursor = 'crosshair';
@@ -45,6 +159,22 @@ export default class BaseScene extends Phaser.Scene {
 
 	getSpriteData() {
 		return this.spriteData ?? []
+	}
+
+	resolveSpellDefinitions(spells = []) {
+		if (!Array.isArray(spells)) return []
+		return spells
+			.map((entry) => {
+				if (typeof entry === 'string') {
+					const def = SPELL_LIBRARY[entry]
+					return def ? { ...def } : null
+				}
+				if (entry && typeof entry === 'object') {
+					return entry
+				}
+				return null
+			})
+			.filter(Boolean)
 	}
 
 	saveGame(key, val) {
@@ -184,7 +314,50 @@ export default class BaseScene extends Phaser.Scene {
 	}
 
 	getEnemySpawnerConfigs() {
+		return [
+			...this.createTileSpawnerConfigsFromPoints(this.getTileSpawnPoints()),
+			...this.getSceneEnemySpawnerConfigs(),
+		]
+	}
+
+	getSceneEnemySpawnerConfigs() {
 		return []
+	}
+
+	getTileSpawnPoints() {
+		return Array.isArray(this.tileSpawnerPoints) ? this.tileSpawnerPoints : []
+	}
+
+	createTileSpawnerConfigsFromPoints(points = []) {
+		if (!points.length) return []
+		const map = this.topdown?.map
+		const tileWidth = map?.tileWidth ?? 16
+		const tileHeight = map?.tileHeight ?? 16
+		const scale = this.gameScale ?? 1
+		return points
+			.map((point, index) => {
+				const spriteClass = point.enemyClass || Slime
+				if (!spriteClass) return null
+				const baseX = point.x ?? ((point.tileX ?? 0) * tileWidth + tileWidth / 2)
+				const baseY = point.y ?? ((point.tileY ?? 0) * tileHeight + tileHeight / 2)
+				const worldX = baseX * scale
+				const worldY = baseY * scale
+				const jitterX = (point.jitterX ?? 0) * scale
+				const jitterY = (point.jitterY ?? 0) * scale
+				return {
+					key: point.key || `tile-spawner-${index}`,
+					spriteClass,
+					interval: point.interval ?? 1500,
+					position: {
+						x: worldX,
+						y: worldY,
+						jitterX,
+						jitterY,
+					},
+					spawnConfig: point.spawnConfig || {},
+				}
+			})
+			.filter(Boolean)
 	}
 
 	initEnemySpawners() {
@@ -317,16 +490,17 @@ export default class BaseScene extends Phaser.Scene {
 	}
 
 	initSpellSystem() {
+		this.spellDefinitions = this.resolveSpellDefinitions(this.spellKeys)
 		if (!this.spellDefinitions.length) return
 
-		this.spellButtons = this.spellDefinitions.map((spell, index) => this.createSpellButton(spell, index))
+		this.spellButtons = this.spellDefinitions.map((spell) => this.createSpellButton(spell))
 		this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
 			this.spellButtons.forEach((btn) => btn.destroy())
 			this.spellButtons = []
 		})
 	}
 
-	createSpellButton(spell, index) {
+	createSpellButton(spell) {
 		const size = 44 * this.gameScale
 		const container = this.add.container(0, 0)
 		container.setDepth(150)
@@ -407,10 +581,9 @@ export default class BaseScene extends Phaser.Scene {
 
 	updateSpellButtonStates() {
 		if (!this.spellButtons.length) return
-		this.spellButtons.forEach((btn) => {
-			const spell = btn.getData('spell')
-			const bg = btn.getData('bg')
-			const icon = btn.getData('icon')
+			this.spellButtons.forEach((btn) => {
+				const spell = btn.getData('spell')
+				const bg = btn.getData('bg')
 			const isSelected = spell.key === this.activeSpellKey
 			bg.setStrokeStyle(2 * (isSelected ? 1.5 : 1), isSelected ? 0xfff2a0 : 0xffffff, isSelected ? 0.9 : 0.25)
 			btn.setAlpha(this.menu?.alpha ?? 1)

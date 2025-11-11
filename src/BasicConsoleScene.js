@@ -245,11 +245,10 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.screen.setScale(scale)
 	}
 
-	createTextAreas() {
-		const padding = 30
-		const fontConfig = { fontFamily: 'Silkscreen', fontSize: 14, color: '#00ff9c', align: 'left' }
-		const { width } = this.scale
-		const screenBounds = this.screen.getBounds()
+		createTextAreas() {
+			const padding = 30
+			const fontConfig = { fontFamily: 'Silkscreen', fontSize: 14, color: '#00ff9c', align: 'left' }
+			const screenBounds = this.screen.getBounds()
 
 		this.codeLabel = this.add.text(
 			screenBounds.left + padding + 120,
@@ -305,9 +304,8 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		).setOrigin(0, 0)
 	}
 
-	createButtons() {
-		const screenBounds = this.screen.getBounds()
-		const padding = 30
+		createButtons() {
+			const screenBounds = this.screen.getBounds()
 		const buttonStyle = {
 			fontFamily: 'Silkscreen',
 			fontSize: 14,
@@ -379,8 +377,8 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const screenBounds = this.screen.getBounds()
 		const columnLeft = screenBounds.right - 30
 		const availableCommands = COMMANDS.filter((cmd) => this.availableCommandKeys.includes(cmd.key))
-		const { states, nextY } = this.buildCommandPanel(columnLeft, 5, 'Statements', availableCommands)
-		this.commandStates = states
+			const { states } = this.buildCommandPanel(columnLeft, 5, 'Statements', availableCommands)
+			this.commandStates = states
 	}
 
 	createCrtOverlay() {
@@ -994,8 +992,7 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		const title = this.add.text(posX + 12, posY + 10, 'SAVE PROGRAM', { ...this.codeLineStyle })
 		const nameLabel = this.add.text(posX + 12, posY + 46, 'NAME:', { ...this.codeLineStyle })
 		const nameValue = this.add.text(nameLabel.x + nameLabel.width + 10, nameLabel.y, defaultName, { ...this.codeLineStyle })
-		const cursorHeight = Number(this.codeLineStyle.fontSize)
-		const cursorBlock = this.add.rectangle(nameValue.x + nameValue.width + 2, nameValue.y + 2, 10, 19, 0x00ff9c)
+			const cursorBlock = this.add.rectangle(nameValue.x + nameValue.width + 2, nameValue.y + 2, 10, 19, 0x00ff9c)
 			.setOrigin(0, 0)
 			.setAlpha(0.85)
 			.setVisible(true)

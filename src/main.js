@@ -24,7 +24,7 @@ const config = {
 		},
 	},
 	antialias: false,
-	scene: [TitleWorldScene],
+	scene: [TitleWorldScene, BasicConsoleScene, ArkanoidScene, CastleScene],
 }
 
 export default new Phaser.Game(config)

@@ -2,10 +2,8 @@ import Phaser from 'phaser'
 import CrtOverlayShader from './shaders/CrtOverlayShader'
 
 const COLOR_PRIMARY = 0x00ff9c
-const COLOR_ACCENT = 0xf05a28
 const COLOR_WARNING = 0xffff66
 const SCREEN_INSETS = { left: 160, right: 240, top: 170, bottom: 220 }
-const PADDLE_COLOR = COLOR_PRIMARY
 const BALL_COLOR = COLOR_WARNING
 const BRICK_COLORS = [0xf05a28, 0xffae00, 0x00b5ff, 0x8b5cf6]
 const ASCII_FONT = {
