@@ -4,6 +4,7 @@ import Doctor from './topdown/Doctor.js'
 import Slime from './topdown/sprites/Slime.js'
 import Dialog from './ui/Dialog.js'
 import Menu from './ui/Menu.js'
+import createSmokeEffect from './effects/createSmokeEffect.js'
 
 const TITLE_SPRITE_DATA = [{
 	name: 'doctor',
@@ -103,6 +104,11 @@ export default class BaseScene extends Phaser.Scene {
 			}
 		}
 	}
+
+	createSmokeEffect(x, y, intensity = 1, duration = 1200) {
+		return createSmokeEffect(this, { x, y, intensity, duration })
+	}
+
 	create() {
 		this.panelDialog = null;
 
