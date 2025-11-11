@@ -84,7 +84,7 @@ const titleSpells = [{
 	label: 'Fireball',
 	iconColor: 0xff6b18,
 	autoTargetNearestEnemy: true,
-	cooldownMs: 300,
+	cooldownMs: 500,
 	createIcon: (scene, { size }) => {
 		const iconScale = (size / 44) * 0.7
 		const icon = new FireballSprite(scene, {
@@ -197,6 +197,50 @@ export default class TitleScene extends BaseScene {
 		})
 	}
 
+	create() {
+		super.create()
+		this.createTileNumberOverlay()
+	}
+
+	createTileNumberOverlay() {
+		const map = this.topdown?.map
+		if (!map) return
+		const tilemapData = this.cache?.tilemap?.get(this.tilemapKey)?.data
+		const backgroundLayer = tilemapData?.layers?.find(
+			(layer) => layer.name === 'background layer' && Array.isArray(layer.data)
+		)
+		if (!backgroundLayer) return
+		const tileWidth = (map.tileWidth ?? 16) * this.gameScale
+		const tileHeight = (map.tileHeight ?? 16) * this.gameScale
+		const width = backgroundLayer.width ?? map.width ?? 0
+		const height = backgroundLayer.height ?? map.height ?? 0
+		if (!width || !height) return
+		const texts = []
+		const style = {
+			fontFamily: 'Silkscreen',
+			fontSize: `${Math.max(6, 7 * this.gameScale)}px`,
+			color: '#ff5555',
+		}
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				const index = y * width + x
+				const tileValue = backgroundLayer.data[index] ?? 0
+				const worldX = x * tileWidth + tileWidth / 2
+				const worldY = y * tileHeight + tileHeight / 2
+				const label = this.add.text(worldX, worldY, `${tileValue}`, style)
+				label.setOrigin(0.5)
+				label.setDepth(500)
+				label.setScrollFactor(1)
+				texts.push(label)
+			}
+		}
+		this.tileNumberLabels = texts
+		this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+			this.tileNumberLabels?.forEach((txt) => txt.destroy())
+			this.tileNumberLabels = null
+		})
+	}
+
 	preload() {
 		super.preload()
 		this.load.spritesheet(FIREBALL_PROJECTILE_KEY, 'condo/spells/fireball.png', {
@@ -209,14 +253,18 @@ export default class TitleScene extends BaseScene {
 		const baseConfig = {
 			spriteClass: Slime,
 			interval: 1500,
-			position: {
-				jitterX: 32,
-				jitterY: 16,
-			},
 			spawnConfig: {
 				wanderRadius: 90,
 				chaseSpeed: 16,
 			},
+			position: {
+				jitterX: 32,
+				jitterY: 16,
+			},
+		}
+		const tileSpawners = this.createTileSpawnerConfigs(147, baseConfig)
+		if (tileSpawners.length) {
+			return tileSpawners
 		}
 		return [
 			{
@@ -230,6 +278,49 @@ export default class TitleScene extends BaseScene {
 				position: { ...baseConfig.position, offsetX: -240 },
 			},
 		]
+	}
+
+	createTileSpawnerConfigs(tileIndex, baseConfig) {
+		const positions = this.findTileSpawnerPositions(tileIndex)
+		if (!positions.length) return []
+		const jitterX = (baseConfig.position?.jitterX ?? 0) * this.gameScale
+		const jitterY = (baseConfig.position?.jitterY ?? 0) * this.gameScale
+		return positions.map((pos, index) => ({
+			key: `slime-tile${tileIndex}-${index}`,
+			interval: baseConfig.interval,
+			spawnHandler: (scene) => {
+				const spawnX = pos.x + (jitterX ? Phaser.Math.Between(-jitterX, jitterX) : 0)
+				const spawnY = pos.y + (jitterY ? Phaser.Math.Between(-jitterY, jitterY) : 0)
+				scene.spawnEnemySprite(Slime, spawnX, spawnY, baseConfig.spawnConfig)
+			},
+		}))
+	}
+
+	findTileSpawnerPositions(tileIndex) {
+		const tilemapEntry = this.cache?.tilemap?.get(this.tilemapKey)
+		const data = tilemapEntry?.data
+		if (!data?.layers?.length) return []
+		const tileset = data.tilesets?.[0]
+		const firstgid = tileset?.firstgid ?? 1
+		const targetGid = firstgid + tileIndex
+		const tileWidth = data.tilewidth ?? 16
+		const tileHeight = data.tileheight ?? 16
+		const scale = this.gameScale ?? 1
+		const positions = []
+		for (const layer of data.layers) {
+			if (layer.type !== 'tilelayer' || !Array.isArray(layer.data)) continue
+			const width = layer.width ?? data.width ?? 0
+			if (!width) continue
+			layer.data.forEach((gid, idx) => {
+				if (gid !== targetGid) return
+				const col = idx % width
+				const row = Math.floor(idx / width)
+				const x = (col * tileWidth + tileWidth / 2) * scale
+				const y = (row * tileHeight + tileHeight / 2) * scale
+				positions.push({ x, y })
+			})
+		}
+		return positions
 	}
 
 }
