@@ -1,4 +1,3 @@
-import Phaser from 'phaser'
 import BaseScene from './BaseScene.js'
 import Dialog from './ui/Dialog.js'
 import Slime from './topdown/sprites/Slime.js'
@@ -77,18 +76,52 @@ var levelScripts = [
 	}
 ]
 
+const slimeTween = {
+		alpha: { from: 0, to: 1 },
+		scale: { from: 0.05, to: 2 },
+		duration: 180,
+		ease: 'Quad.easeOut',
+	};
+
 const titleTileSpawners = [{
 	key: 'slime-grate-1',
 	tileX: 7,
 	tileY: 7,
 	enemyClass: Slime,
-	interval: 1500,
+	interval: 2500,
+	jitterX: 8,
+	jitterY: 7,
+	spawnConfig: {
+		wanderRadius: 90,
+		chaseSpeed: 26,
+	},
+	spawnTween: slimeTween,
+}, {
+	key: 'slime-grate-2',
+	tileX: 32,
+	tileY: 7,
+	enemyClass: Slime,
+	interval: 2500,
 	jitterX: 8,
 	jitterY: 8,
 	spawnConfig: {
 		wanderRadius: 90,
-		chaseSpeed: 16,
+		chaseSpeed: 26,
 	},
+	spawnTween: slimeTween,
+},{
+	key: 'slime-grate-3',
+	tileX: 57,
+	tileY: 7,
+	enemyClass: Slime,
+	interval: 2500,
+	jitterX: 8,
+	jitterY: 8,
+	spawnConfig: {
+		wanderRadius: 90,
+		chaseSpeed: 26,
+	},
+	spawnTween: slimeTween,
 }]
 
 export default class TitleScene extends BaseScene {

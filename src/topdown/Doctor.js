@@ -98,7 +98,7 @@ export default class Doctor extends Phaser.Physics.Arcade.Sprite {
         this.waypoints=[]
         const tilesize = 16*this.scene.gameScale
         var _this = this
-        this.easystar.findPath(Math.round(this.x/tilesize)-1, Math.round(this.y/tilesize)-1, Math.round(d.x/tilesize)-1, Math.round(d.y/tilesize)-1, function( path ) {
+		this.easystar.findPath(Math.round(this.x/tilesize)-1, Math.round(this.y/tilesize)-1, Math.round(d.x/tilesize)-1, Math.round(d.y/tilesize)-1, function( path ) {
             if (path === null) {
                 const circle = new Phaser.Geom.Circle(d.x, d.y, 12*_this.scene.gameScale);
                 const graphics = _this.scene.add.graphics({ lineStyle: { color: 0xff0000, width:3*_this.scene.gameScale, alpha:.3 },  });
@@ -112,7 +112,9 @@ export default class Doctor extends Phaser.Physics.Arcade.Sprite {
                             graphics.destroy()
                         }
                 });
-
+				if(typeof _this.scene.onDestinationUnreachable === 'function'){
+					_this.scene.onDestinationUnreachable(d)
+				}
             } else {
                 _this.dest = d
                 if(_this.navigationLight) _this.navigationLight.setVisible(false)

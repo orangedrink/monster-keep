@@ -30,7 +30,7 @@ const SPELL_LIBRARY = {
 		label: 'Fireball',
 		iconColor: 0xff6b18,
 		autoTargetNearestEnemy: true,
-		cooldownMs: 500,
+		cooldownMs: 100,
 		createIcon: (scene, { size }) => {
 			const iconScale = (size / 44) * 0.7
 			const icon = new FireballSprite(scene, {
@@ -127,7 +127,7 @@ const SPELL_LIBRARY = {
 					scene.events.on(Phaser.Scenes.Events.UPDATE, updateHandler)
 				})
 			}
-			for (let i = 0; i < 3; i++) {
+			for (let i = 0; i < 1; i++) {
 				fireProjectile(i * 90)
 			}
 		},
@@ -155,6 +155,7 @@ export default class BaseScene extends Phaser.Scene {
 		this.spellUiVisible = false;
 		this.spellCooldowns = {};
 		this.enemySpawners = [];
+		this.pendingTargetClear = false;
 	}
 
 	getSpriteData() {
@@ -334,19 +335,29 @@ export default class BaseScene extends Phaser.Scene {
 		const tileWidth = map?.tileWidth ?? 16
 		const tileHeight = map?.tileHeight ?? 16
 		const scale = this.gameScale ?? 1
+		const setInitialTweenValues = (target, tweenConfig) => {
+			if (!target || !tweenConfig) return
+			Object.keys(tweenConfig).forEach((prop) => {
+				if (prop === 'targets') return
+				const value = tweenConfig[prop]
+				if (value && typeof value === 'object' && value.from !== undefined && prop in target) {
+					target[prop] = value.from
+				}
+			})
+		}
 		return points
 			.map((point, index) => {
 				const spriteClass = point.enemyClass || Slime
 				if (!spriteClass) return null
-				const baseX = point.x ?? ((point.tileX ?? 0) * tileWidth + tileWidth / 2)
-				const baseY = point.y ?? ((point.tileY ?? 0) * tileHeight + tileHeight / 2)
-				const worldX = baseX * scale
-				const worldY = baseY * scale
+				const tileCenterX = point.x ?? ((point.tileX ?? 0) * tileWidth + tileWidth / 2)
+				const tileCenterY = point.y ?? ((point.tileY ?? 0) * tileHeight + tileHeight / 2)
+				const worldX = tileCenterX * scale
+				const worldY = tileCenterY * scale
 				const jitterX = (point.jitterX ?? 0) * scale
 				const jitterY = (point.jitterY ?? 0) * scale
+				const spawnTween = point.spawnTween ? { ...point.spawnTween } : null
 				return {
 					key: point.key || `tile-spawner-${index}`,
-					spriteClass,
 					interval: point.interval ?? 1500,
 					position: {
 						x: worldX,
@@ -354,7 +365,15 @@ export default class BaseScene extends Phaser.Scene {
 						jitterX,
 						jitterY,
 					},
-					spawnConfig: point.spawnConfig || {},
+					spawnHandler: (scene, position) => {
+						const spawnConfig = point.spawnConfig || {}
+						const enemy = scene.spawnEnemySprite(spriteClass, position.x, position.y, spawnConfig)
+						if (enemy && spawnTween) {
+							const tweenConfig = { ...spawnTween, targets: enemy }
+							setInitialTweenValues(enemy, tweenConfig)
+							scene.tweens.add(tweenConfig)
+						}
+					},
 				}
 			})
 			.filter(Boolean)
@@ -477,6 +496,10 @@ export default class BaseScene extends Phaser.Scene {
 		this.processScripts();
 		this.topdown.update(time)
 		this.doctor.update(time)
+		this.checkForTargetArrival()
+		if (this.doctor?.paused && this.selectedTarget) {
+			this.clearTargetSelection()
+		}
 		if (this.slimes) {
 			this.slimes.forEach((slime) => {
 				slime.update()
@@ -633,29 +656,9 @@ export default class BaseScene extends Phaser.Scene {
 		if (targetSprite) {
 			this.selectTargetSprite(targetSprite)
 		} else {
-			if (this.shouldConfirmWalk(worldPoint)) {
-				this.confirmWalkToPoint(this.selectedTarget.position)
-			} else {
-				this.selectTargetPoint(worldPoint)
-			}
+			this.selectTargetPoint(worldPoint)
 		}
 		return true
-	}
-
-	shouldConfirmWalk(point) {
-		if (!this.selectedTarget || this.selectedTarget.type !== 'point') return false
-		const prev = this.selectedTarget.position
-		const threshold = 18 * this.gameScale
-		const dx = point.x - prev.x
-		const dy = point.y - prev.y
-		return Math.hypot(dx, dy) <= threshold
-	}
-
-	confirmWalkToPoint(point) {
-		if (!point) return
-		this.doctor.addDestinationPoint({ x: point.x, y: point.y })
-		this.createWalkConfirmEffect(point.x, point.y)
-		this.clearTargetSelection()
 	}
 
 	findSpriteTargetAt(point) {
@@ -677,39 +680,79 @@ export default class BaseScene extends Phaser.Scene {
 			position: { x: point.x, y: point.y },
 		}
 		this.applyTargetMarker(0x00ff90, point.x, point.y)
+		this.createWalkConfirmEffect(point.x, point.y)
+		this.doctor?.addDestinationPoint({ x: point.x, y: point.y })
+		this.pendingTargetClear = true
 		this.updateSelectionUI()
 	}
 
 	selectTargetSprite(sprite) {
+		const locked = sprite && sprite.active ? sprite : this.findNearestEnemyToPoint({ x: sprite?.x ?? 0, y: sprite?.y ?? 0 }) || sprite
 		this.selectedTarget = {
 			type: 'sprite',
-			sprite,
+			sprite: locked,
 		}
-		this.applyTargetMarker(0xff3b58, sprite.x, sprite.y)
+		this.pendingTargetClear = false
+		if (locked) {
+			this.applyTargetMarker(0xff3b58, locked.x, locked.y)
+		}
 		this.updateSelectionUI()
 	}
 
+	checkForTargetArrival() {
+		if (!this.pendingTargetClear) return
+		if (!this.selectedTarget || this.selectedTarget.type !== 'point') {
+			this.pendingTargetClear = false
+			return
+		}
+		const doctor = this.doctor
+		if (!doctor) return
+		if (doctor.waypoints?.length) return
+		const pos = this.selectedTarget.position
+		const dx = doctor.x - pos.x
+		const dy = doctor.y - pos.y
+		const threshold = 8 * this.gameScale
+		if (Math.hypot(dx, dy) <= threshold) {
+			this.pendingTargetClear = false
+			this.clearTargetSelection()
+		}
+	}
+
 	selectNearestEnemyTarget() {
-		const targets = this.getSelectableTargets()
-		if (!targets.length) return null
 		const originX = this.doctor?.x ?? 0
 		const originY = this.doctor?.y ?? 0
+		const nearest = this.findNearestEnemyToPoint({ x: originX, y: originY })
+		if (!nearest) return null
+		this.selectTargetSprite(nearest)
+		return nearest
+	}
+
+	findNearestEnemyToPoint(point) {
+		const targets = this.getSelectableTargets()
+		if (!targets.length || !point) return null
 		let nearest = null
 		let nearestDistSq = Number.POSITIVE_INFINITY
 		for (let i = 0; i < targets.length; i++) {
 			const sprite = targets[i]
 			if (!sprite?.active) continue
-			const dx = sprite.x - originX
-			const dy = sprite.y - originY
+			const dx = sprite.x - point.x
+			const dy = sprite.y - point.y
 			const distSq = dx * dx + dy * dy
 			if (distSq < nearestDistSq) {
 				nearest = sprite
 				nearestDistSq = distSq
 			}
 		}
-		if (!nearest) return null
-		this.selectTargetSprite(nearest)
 		return nearest
+	}
+
+	onDestinationUnreachable(point) {
+		if (!point) return
+		const target = this.selectedTarget
+		if (!target) return
+		if (target.type === 'point' && target.position && target.position.x === point.x && target.position.y === point.y) {
+			this.clearTargetSelection()
+		}
 	}
 
 	applyTargetMarker(color, x, y) {
@@ -757,6 +800,7 @@ export default class BaseScene extends Phaser.Scene {
 
 	clearTargetSelection() {
 		this.selectedTarget = null
+		this.pendingTargetClear = false
 		this.clearTargetMarker()
 		this.updateSelectionUI()
 	}
@@ -779,11 +823,15 @@ export default class BaseScene extends Phaser.Scene {
 		if (!this.activeSpellKey) return
 		if (!this.selectedTarget) return
 		if (this.selectedTarget.type === 'point') {
-			this.castSpellAtPoint(this.selectedTarget.position)
+			const nearest = this.findNearestEnemyToPoint(this.selectedTarget.position)
+			if (nearest) {
+				this.castSpellAtPoint({ x: nearest.x, y: nearest.y })
+			}
 		} else if (this.selectedTarget.type === 'sprite') {
 			const sprite = this.selectedTarget.sprite
-			if (sprite?.active) {
-				this.castSpellAtPoint({ x: sprite.x, y: sprite.y })
+			const targetSprite = sprite?.active ? sprite : this.findNearestEnemyToPoint({ x: sprite?.x ?? 0, y: sprite?.y ?? 0 })
+			if (targetSprite?.active) {
+				this.castSpellAtPoint({ x: targetSprite.x, y: targetSprite.y })
 			}
 		}
 	}
