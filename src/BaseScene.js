@@ -9,6 +9,13 @@ import createFireballEffect, { createImpactLight } from './effects/createFirebal
 import FireballSprite from './spells/FireballSprite.js'
 import { FIREBALL_PROJECTILE_KEY } from './spells/FireballSprite.js'
 
+const GROW_TWEEN = {
+	alpha: { from: 0, to: 1 },
+	scale: { from: 0.05, to: 1 },
+	duration: 180,
+	ease: 'Quad.easeOut',
+};
+
 
 const TITLE_SPRITE_DATA = [{
 	name: 'doctor',
@@ -336,22 +343,25 @@ export default class BaseScene extends Phaser.Scene {
 		return Array.isArray(this.tileSpawnerPoints) ? this.tileSpawnerPoints : []
 	}
 
+	applySpawnTween(target, tweenConfig = GROW_TWEEN) {
+		if (!target || !tweenConfig) return
+		const config = { ...tweenConfig, targets: target }
+		Object.keys(config).forEach((prop) => {
+			if (prop === 'targets') return
+			const value = config[prop]
+			if (value && typeof value === 'object' && value.from !== undefined && prop in target) {
+				target[prop] = value.from
+			}
+		})
+		this.tweens.add(config)
+	}
+
 	createTileSpawnerConfigsFromPoints(points = []) {
 		if (!points.length) return []
 		const map = this.topdown?.map
 		const tileWidth = map?.tileWidth ?? 16
 		const tileHeight = map?.tileHeight ?? 16
 		const scale = this.gameScale ?? 1
-		const setInitialTweenValues = (target, tweenConfig) => {
-			if (!target || !tweenConfig) return
-			Object.keys(tweenConfig).forEach((prop) => {
-				if (prop === 'targets') return
-				const value = tweenConfig[prop]
-				if (value && typeof value === 'object' && value.from !== undefined && prop in target) {
-					target[prop] = value.from
-				}
-			})
-		}
 		return points
 			.map((point, index) => {
 				const spriteClass = point.enemyClass || Slime
@@ -362,7 +372,7 @@ export default class BaseScene extends Phaser.Scene {
 				const worldY = tileCenterY * scale
 				const jitterX = (point.jitterX ?? 0) * scale
 				const jitterY = (point.jitterY ?? 0) * scale
-				const spawnTween = point.spawnTween ? { ...point.spawnTween } : null
+				const spawnTween = point.spawnTween ? { ...point.spawnTween } : GROW_TWEEN
 				return {
 					key: point.key || `tile-spawner-${index}`,
 					interval: point.interval ?? 1500,
@@ -376,9 +386,7 @@ export default class BaseScene extends Phaser.Scene {
 						const spawnConfig = point.spawnConfig || {}
 						const enemy = scene.spawnEnemySprite(spriteClass, position.x, position.y, spawnConfig)
 						if (enemy && spawnTween) {
-							const tweenConfig = { ...spawnTween, targets: enemy }
-							setInitialTweenValues(enemy, tweenConfig)
-							scene.tweens.add(tweenConfig)
+							scene.applySpawnTween(enemy, spawnTween)
 						}
 					},
 				}
@@ -403,6 +411,7 @@ export default class BaseScene extends Phaser.Scene {
 		const interval = Math.max(250, config.interval ?? 4000)
 		const spawnHandler = typeof config.spawnHandler === 'function' ? config.spawnHandler : null
 		const spriteClass = config.spriteClass
+		const spawnTween = config.spawnTween === null ? null : (config.spawnTween || GROW_TWEEN)
 		const spawn = () => {
 			const position = this.resolveSpawnerPosition(config.position)
 			if (!position) return
@@ -411,7 +420,10 @@ export default class BaseScene extends Phaser.Scene {
 				return
 			}
 			if (spriteClass) {
-				this.spawnEnemySprite(spriteClass, position.x, position.y, config.spawnConfig || {})
+				const enemy = this.spawnEnemySprite(spriteClass, position.x, position.y, config.spawnConfig || {})
+				if (enemy && spawnTween) {
+					this.applySpawnTween(enemy, spawnTween)
+				}
 				return
 			}
 			this.spawnSlimeAt(position.x, position.y, config.spawnConfig || {})
@@ -472,18 +484,31 @@ export default class BaseScene extends Phaser.Scene {
 		this.starty = this.doctor.y
 
 		this.slimes = []
-		const entityLayer = this.topdown.map.getObjectLayer('entities')
-		if (entityLayer && entityLayer.objects) {
-			entityLayer.objects.filter((obj) => obj.type === 'slime').forEach((obj) => {
-				const slime = new Slime(this, {
-					scene: this,
-					x: obj.x * this.gameScale,
-					y: obj.y * this.gameScale,
-					wanderRadius: this.getPropertyValue(obj.properties, 'wanderRadius', 60),
-					moveDuration: this.getPropertyValue(obj.properties, 'moveDuration', 1600),
+		const entityLayer = this.topdown.map.getObjectLayer('enemies')
+		if (entityLayer && Array.isArray(entityLayer.objects)) {
+			console.log('[BaseScene] Loaded entity objects:', entityLayer.objects)
+			entityLayer.objects.filter((obj) => obj.type === 'Slime').forEach((obj) => {
+				const width = (obj.width || 0) * this.gameScale
+				const height = (obj.height || 0) * this.gameScale
+				const jitterX = width > 0 ? width / 2 : 8 * this.gameScale
+				const jitterY = height > 0 ? height / 2 : 8 * this.gameScale
+				const centerX = (obj.x + (obj.width || 0) / 2) * this.gameScale
+				const centerY = (obj.y + (obj.height || 0) / 2) * this.gameScale
+				this.createEnemySpawner({
+					interval: obj.properties?.find((p) => p.name === 'interval')?.value || 3000,
+					position: {
+						x: centerX,
+						y: centerY,
+						jitterX,
+						jitterY,
+					},
+					spawnConfig: {
+						wanderRadius: 60 * this.gameScale,
+						moveDuration: 1600,
+						chaseSpeed: 16 * this.gameScale,
+					},
 				})
-				slime.create()
-				this.slimes.push(slime)
+
 			})
 		}
 
