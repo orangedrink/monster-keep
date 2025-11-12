@@ -10,8 +10,8 @@ import FireballSprite from './spells/FireballSprite.js'
 import { FIREBALL_PROJECTILE_KEY } from './spells/FireballSprite.js'
 
 const GROW_TWEEN = {
-	alpha: { from: 0, to: 1 },
-	scale: { from: 0.05, to: 1 },
+	alpha: { from: .5, to: 1 },
+	scale: { from: 0.05, to: 2 },
 	duration: 180,
 	ease: 'Quad.easeOut',
 };
@@ -62,11 +62,18 @@ const SPELL_LIBRARY = {
 					depth: 190,
 				})
 				projectile.create()
-				const finishProjectile = () => {
-					createFireballEffect(scene, { x: target.x, y: target.y })
-					scene.createSmokeEffect(target.x, target.y, 2, 900)
-					createImpactLight(scene, target.x, target.y)
-					scene.destroyEnemiesAt(target.x, target.y, 26 * scene.gameScale)
+				const finishProjectile = (impactX = target.x, impactY = target.y) => {
+					createFireballEffect(scene, { x: impactX, y: impactY })
+/* 					const bgLayer = scene.topdown?.groundLayer
+					if (bgLayer) {
+						const crater = scene.add.circle(impactX, impactY, 6 * scene.gameScale, 0x000000, scene.MASK_OPACITY)
+						crater.setDepth(bgLayer.depth + .001)
+						crater.setBlendMode(Phaser.BlendModes.MULTIPLY)
+						crater.setAlpha(.5);
+					}
+ */					scene.createSmokeEffect(impactX, impactY, 2, 900)
+					createImpactLight(scene, impactX, impactY)
+					scene.destroyEnemiesAt(impactX, impactY, 26 * scene.gameScale)
 					projectile.destroy()
 				}
 
@@ -126,6 +133,12 @@ const SPELL_LIBRARY = {
 						scene.createSmokeEffect(posX, posY, 0.75, 600)
 						scene.createSparkEffect(posX, posY, 1, 3600)
 						lastSmokeEmit = elapsed
+					}
+					const enemyHit = scene.findEnemyNearPoint({ x: posX, y: posY }, 16 * scene.gameScale)
+					if (enemyHit) {
+						scene.events.off(Phaser.Scenes.Events.UPDATE, updateHandler)
+						finishProjectile(enemyHit.x, enemyHit.y)
+						return
 					}
 					if (progress >= 1) {
 						scene.events.off(Phaser.Scenes.Events.UPDATE, updateHandler)
@@ -328,6 +341,21 @@ export default class BaseScene extends Phaser.Scene {
 		return destroyed
 	}
 
+	findEnemyNearPoint(point, radius = 12 * this.gameScale) {
+		if (!point || !this.slimes?.length) return null
+		const radiusSq = radius * radius
+		for (let i = 0; i < this.slimes.length; i++) {
+			const slime = this.slimes[i]
+			if (!slime?.active) continue
+			const dx = slime.x - point.x
+			const dy = slime.y - point.y
+			if ((dx * dx + dy * dy) <= radiusSq) {
+				return slime
+			}
+		}
+		return null
+	}
+
 	getEnemySpawnerConfigs() {
 		return [
 			...this.createTileSpawnerConfigsFromPoints(this.getTileSpawnPoints()),
@@ -343,7 +371,7 @@ export default class BaseScene extends Phaser.Scene {
 		return Array.isArray(this.tileSpawnerPoints) ? this.tileSpawnerPoints : []
 	}
 
-	applySpawnTween(target, tweenConfig = GROW_TWEEN) {
+	applySpawnTween(target, tweenConfig = GROW_TWEEN) {4
 		if (!target || !tweenConfig) return
 		const config = { ...tweenConfig, targets: target }
 		Object.keys(config).forEach((prop) => {
@@ -387,6 +415,7 @@ export default class BaseScene extends Phaser.Scene {
 						const enemy = scene.spawnEnemySprite(spriteClass, position.x, position.y, spawnConfig)
 						if (enemy && spawnTween) {
 							scene.applySpawnTween(enemy, spawnTween)
+							console.log("tween", spawnTween)
 						}
 					},
 				}
@@ -426,7 +455,10 @@ export default class BaseScene extends Phaser.Scene {
 				}
 				return
 			}
-			this.spawnSlimeAt(position.x, position.y, config.spawnConfig || {})
+			const enemy = this.spawnSlimeAt(position.x, position.y, config.spawnConfig || {})
+			if (enemy && spawnTween) {
+				this.applySpawnTween(enemy, spawnTween)
+			}
 		}
 		const event = this.time.addEvent({
 			delay: interval,
@@ -494,6 +526,7 @@ export default class BaseScene extends Phaser.Scene {
 				const jitterY = height > 0 ? height / 2 : 8 * this.gameScale
 				const centerX = (obj.x + (obj.width || 0) / 2) * this.gameScale
 				const centerY = (obj.y + (obj.height || 0) / 2) * this.gameScale
+				//const squareHighlight = this.add.rectangle(centerX, centerY, jitterX, jitterY, 0xff0000, 1);
 				this.createEnemySpawner({
 					interval: obj.properties?.find((p) => p.name === 'interval')?.value || 3000,
 					position: {
@@ -505,8 +538,9 @@ export default class BaseScene extends Phaser.Scene {
 					spawnConfig: {
 						wanderRadius: 60 * this.gameScale,
 						moveDuration: 1600,
-						chaseSpeed: 16 * this.gameScale,
+						chaseSpeed: 10 * this.gameScale,
 					},
+					spawnTween: GROW_TWEEN
 				})
 
 			})

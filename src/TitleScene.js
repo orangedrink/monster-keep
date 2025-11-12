@@ -15,7 +15,7 @@ var levelScripts = [
 					rightside: false
 				}, {
 					target: scene.doctor,
-					text: 'you have entered the monster condo!',
+					text: 'you have entered the monster keep!',
 					rightside: true,
 				}, {
 					target: scene.doctor,
@@ -23,7 +23,7 @@ var levelScripts = [
 					rightside: true,
 				}, {
 					target: scene.doctor,
-					text: 'explore by clicking on or touching a destination',
+					text: 'Anyway, explore by clicking on or touching a destination',
 					rightside: true,
 				}, {
 					target: scene.doctor,
@@ -49,11 +49,11 @@ var levelScripts = [
 						rightside: false
 					}, {
 						target: scene.doctor,
-						text: 'now that you can get around take a look at the menu',
+						text: 'now that you can get around take a look at your spells',
 						rightside: true,
 					}, {
 						target: scene.doctor,
-						text: 'click or touch the menu bar now to open the menu',
+						text: 'click or touch the fireball icon to kill the slimes',
 						rightside: false,
 						callback: () => {
 							//scene.doctor.paused=false
@@ -82,46 +82,7 @@ const slimeTween = {
 		ease: 'Quad.easeOut',
 	};
 
-const titleTileSpawners = [{
-	key: 'slime-grate-1',
-	tileX: 7,
-	tileY: 7,
-	enemyClass: Slime,
-	interval: 2500,
-	jitterX: 8,
-	jitterY: 7,
-	spawnConfig: {
-		wanderRadius: 90,
-		chaseSpeed: 26,
-	},
-	spawnTween: slimeTween,
-}, {
-	key: 'slime-grate-2',
-	tileX: 32,
-	tileY: 7,
-	enemyClass: Slime,
-	interval: 2500,
-	jitterX: 8,
-	jitterY: 8,
-	spawnConfig: {
-		wanderRadius: 90,
-		chaseSpeed: 26,
-	},
-	spawnTween: slimeTween,
-},{
-	key: 'slime-grate-3',
-	tileX: 57,
-	tileY: 7,
-	enemyClass: Slime,
-	interval: 2500,
-	jitterX: 8,
-	jitterY: 8,
-	spawnConfig: {
-		wanderRadius: 90,
-		chaseSpeed: 26,
-	},
-	spawnTween: slimeTween,
-}]
+const titleTileSpawners = []
 
 export default class TitleScene extends BaseScene {
 	constructor() {
@@ -131,13 +92,4 @@ export default class TitleScene extends BaseScene {
 			tileSpawners: titleTileSpawners,
 		})
 	}
-
-	create() {
-		super.create()
-	}
-
-	preload() {
-		super.preload()
-	}
-
 }

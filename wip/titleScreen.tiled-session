@@ -50,6 +50,7 @@
         "titleScreen.tmx"
     ],
     "project": "titleScreen.tiled-project",
+    "property.type": "int",
     "recentFiles": [
         "titleScreen.tmx",
         "walls.tsx",
