@@ -7,6 +7,8 @@ import createSmokeEffect from './effects/createSmokeEffect.js'
 import createSparkEffect from './effects/createSparkEffect.js'
 import createFireballEffect, { createImpactLight } from './effects/createFireballEffect.js'
 import FireballSprite from './spells/FireballSprite.js'
+import { FIREBALL_PROJECTILE_KEY } from './spells/FireballSprite.js'
+
 
 const TITLE_SPRITE_DATA = [{
 	name: 'doctor',
@@ -144,7 +146,7 @@ export default class BaseScene extends Phaser.Scene {
 		this.levelData = props.levelData;
 		this.levelScripts = props.levelScripts;
 		this.triggers = {};
-		this.spellKeys = props.spells || [];
+		this.spellKeys = props.spells || ['fireball'];
 		this.spellDefinitions = [];
 		this.tileSpawnerPoints = props.tileSpawners || [];
 		this.spellButtons = [];
@@ -191,6 +193,11 @@ export default class BaseScene extends Phaser.Scene {
 	preload() {
 		this.preloadSprites()
 		this.loadCommonAssets()
+		this.load.spritesheet(FIREBALL_PROJECTILE_KEY, 'condo/spells/fireball.png', {
+			frameWidth: 44,
+			frameHeight: 13,
+		})
+
 	}
 
 	preloadSprites() {
@@ -604,9 +611,9 @@ export default class BaseScene extends Phaser.Scene {
 
 	updateSpellButtonStates() {
 		if (!this.spellButtons.length) return
-			this.spellButtons.forEach((btn) => {
-				const spell = btn.getData('spell')
-				const bg = btn.getData('bg')
+		this.spellButtons.forEach((btn) => {
+			const spell = btn.getData('spell')
+			const bg = btn.getData('bg')
 			const isSelected = spell.key === this.activeSpellKey
 			bg.setStrokeStyle(2 * (isSelected ? 1.5 : 1), isSelected ? 0xfff2a0 : 0xffffff, isSelected ? 0.9 : 0.25)
 			btn.setAlpha(this.menu?.alpha ?? 1)

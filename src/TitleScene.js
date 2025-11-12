@@ -1,7 +1,6 @@
 import BaseScene from './BaseScene.js'
 import Dialog from './ui/Dialog.js'
 import Slime from './topdown/sprites/Slime.js'
-import { FIREBALL_PROJECTILE_KEY } from './spells/FireballSprite.js'
 var levelScripts = [
 	{
 		trigger: (scene) => {
@@ -129,7 +128,6 @@ export default class TitleScene extends BaseScene {
 		super('title', {
 			levelData: 'topdown/tiles/titleScreen.json',
 			levelScripts: levelScripts,
-			spells: ['fireball'],
 			tileSpawners: titleTileSpawners,
 		})
 	}
@@ -140,10 +138,6 @@ export default class TitleScene extends BaseScene {
 
 	preload() {
 		super.preload()
-		this.load.spritesheet(FIREBALL_PROJECTILE_KEY, 'condo/spells/fireball.png', {
-			frameWidth: 44,
-			frameHeight: 13,
-		})
 	}
 
 }
