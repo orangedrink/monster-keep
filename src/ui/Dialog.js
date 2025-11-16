@@ -1,3 +1,6 @@
+const DIALOG_DEPTH_BASE = 1000
+const DIALOG_DEPTH_TEXT = DIALOG_DEPTH_BASE + 1
+
 export default class Dialog {
     inputFlag = true
     tweens = []
@@ -12,9 +15,10 @@ export default class Dialog {
         var txt = this.scene.add.text(-100, this.dialogdata.messages[0].target.y-38, this.dialogdata.messages[0].text ,textConfig);
         txt.alpha=0
         txt.scale=.7
-        txt.setDepth(101)        
+        txt.setDepth(DIALOG_DEPTH_TEXT)
 
         var graphics = this.scene.add.graphics();
+        graphics.setDepth(DIALOG_DEPTH_BASE)
         if(this.dialogdata.messages[0].target == this.scene.doctor) this.scene.doctor.play({key:'Laugh', repeat:-1})
         graphics.fillStyle(0xffffff, .6)
         graphics.alpha=0
@@ -83,7 +87,7 @@ export default class Dialog {
         var textConfig={fontSize:'16px',color:'#ffffff',fontFamily: 'Silkscreen ', wordWrap: { width: 420, useAdvancedWrap: false }};
         //var txt = this.scene.add.text(this.scene.doctor.x-260, this.scene.doctor.y-160, '', textConfig);
         var txt = this.scene.add.text(messageData.x, messageData.y, '', textConfig);
-        txt.setDepth(101) 
+        txt.setDepth(DIALOG_DEPTH_TEXT)
         txt.setInteractive()  
         txt.alpha=.8 
         txt.setSize(txt.width, 30)
@@ -186,7 +190,7 @@ export default class Dialog {
             this.scene.doctor.paused=true
 
             this.scene.panel = this.scene.add.sprite(this.scene.doctor.x, this.scene.doctor.y+700, 'screen');
-            this.scene.panel.setDepth(101) 
+            this.scene.panel.setDepth(DIALOG_DEPTH_BASE)
             this.scene.panel.alpha = 0   
             this.scene.panel.setScale(.2)
             this.tweens.push(this.scene.add.tween({

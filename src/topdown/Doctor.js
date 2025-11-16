@@ -21,9 +21,15 @@ export default class Doctor extends Phaser.Physics.Arcade.Sprite {
     intensity
     animStarted = 0
     paused = false
+	hitReacting = false
+	hitAnimationKey = null
+	isDead = false
+	casting = false
+	castStateTimer = null
 
     //Plays the correct animation based on the direction.x and direction.y
     playAnim(time){
+		if (this.hitReacting) return
         //current animation so we can check that we aren't restarting on that's playing already
         let curr = this.anims.getName() 
         if(this.direction.x==1&&this.direction.y==1){
@@ -66,7 +72,7 @@ export default class Doctor extends Phaser.Physics.Arcade.Sprite {
                 this.play({key:'S-Walk', repeat:-1})
             }
         }
-        if(this.direction.x==0&&this.direction.y==0){
+        if(!this.casting&&this.direction.x==0&&this.direction.y==0){
             if(curr!=='Idle') {
                 this.play({key:'Idle', repeat:-1})
             }
@@ -162,33 +168,37 @@ export default class Doctor extends Phaser.Physics.Arcade.Sprite {
         this.waypoints.unshift(w)
     }
 
-    constructor(scene, config) {
+    constructor(scene, config = {}) {
 		super(scene, config.x, config.y, "doctor");
         this.scene.physics.add.existing(this);
         this.scene = config.scene;
         config.scene.add.existing(this);
         this.speed = this.INITSPEED
         this.setScale(this.scene.gameScale)
+		const defaultMaxHp = typeof config.maxHp === 'number' ? config.maxHp : 20
+		this.maxHp = Math.max(1, defaultMaxHp)
+		const startingHp = typeof config.hp === 'number' ? config.hp : this.maxHp
+		this.hp = this.clampHp(startingHp)
 	}
 	preload() {
     }
 
 	create() {
         this.setPipeline('Light2D');
-        this.setDepth(1)
+        this.setDepth(200)
         this.easystar.setGrid(this.scene.topdown.collisionData);
         this.easystar.setAcceptableTiles([0]);
         this.setSize(20, 25)
         this.scene.cameras.main.startFollow(this);
 
-		this.scene.input.on('pointerdown', (pointer, currentlyOver = [])=>{
-			const blockedByUi = currentlyOver.some((obj) => obj?.getData?.('blocksPointerRouting'))
-			if (blockedByUi) {
-				return
-			}
-			if (typeof this.scene.handleTargetSelection === 'function' && this.scene.handleTargetSelection(pointer)) {
-				return
-			}
+this.scene.input.on('pointerdown', (pointer, currentlyOver = [])=>{
+    const blockedByUi = currentlyOver.some((obj) => obj?.getData?.('blocksPointerRouting'))
+    if (blockedByUi) {
+        return
+    }
+    if (typeof this.scene.handleTargetSelection === 'function' && this.scene.handleTargetSelection(pointer)) {
+        return
+    }
 			if (typeof this.scene.handleSpellPointer === 'function' && this.scene.handleSpellPointer(pointer)) {
 				return
 			}
@@ -259,11 +269,136 @@ export default class Doctor extends Phaser.Physics.Arcade.Sprite {
                 this.direction.x=0
                 this.direction.y=0
                 setTimeout(()=>{
-                    this.play({key:'Idle', repeat:-1})    
+                    //this.play({key:'Idle', repeat:-1})    
                 },200)
             }
             
         }
         this.playAnim(time)
     }
+
+	setHp(value = this.hp ?? this.maxHp) {
+		const previousHp = typeof this.hp === 'number' ? this.hp : this.maxHp
+		this.hp = this.clampHp(value)
+		if (typeof previousHp === 'number' && this.hp < previousHp) {
+			this.triggerHitReaction()
+		}
+		if (this.hp <= 0) {
+			this.die()
+		}
+		return this.hp
+	}
+
+	setMaxHp(value = this.maxHp ?? 20, { refill = false } = {}) {
+		const numeric = typeof value === 'number' ? value : this.maxHp ?? 20
+		this.maxHp = Math.max(1, numeric)
+		if (refill) {
+			this.hp = this.maxHp
+		} else if (this.hp > this.maxHp) {
+			this.hp = this.maxHp
+		}
+		return this.maxHp
+	}
+
+	getHpRatio() {
+		if (!this.maxHp) return 0
+		return Phaser.Math.Clamp(this.hp / this.maxHp, 0, 1)
+	}
+
+	clampHp(value = this.hp ?? this.maxHp ?? 20) {
+		const numeric = typeof value === 'number' ? value : this.hp ?? this.maxHp ?? 20
+		return Phaser.Math.Clamp(numeric, 0, this.maxHp || 1)
+	}
+
+	resolveHitAnimationKey() {
+		if (this.hitAnimationKey && this.scene?.anims?.exists(this.hitAnimationKey)) {
+			return this.hitAnimationKey
+		}
+		if (!this.scene?.anims) return null
+		const preferredKeys = ['Hit', 'Die']
+		for (let i = 0; i < preferredKeys.length; i++) {
+			const key = preferredKeys[i]
+			if (this.scene.anims.exists(key)) {
+				this.hitAnimationKey = key
+				return key
+			}
+		}
+		return null
+	}
+
+	triggerHitReaction() {
+		if (this.hitReacting || this.isDead) return
+		const hitKey = this.resolveHitAnimationKey()
+		if (!hitKey) return
+		this.hitReacting = true
+		this.play({ key: hitKey, repeat: 0 })
+		const handleComplete = (animation) => {
+			if (animation?.key !== hitKey) return
+			this.off(Phaser.Animations.Events.ANIMATION_COMPLETE, handleComplete)
+			this.hitReacting = false
+		}
+		this.on(Phaser.Animations.Events.ANIMATION_COMPLETE, handleComplete)
+		if (this.scene?.time) {
+			this.scene.time.delayedCall(350, () => {
+				if (!this.hitReacting) return
+				this.hitReacting = false
+			})
+		}
+	}
+
+	setCastingState(active = false) {
+		this.casting = !!active
+		if (!this.casting && this.castStateTimer) {
+			this.castStateTimer.remove?.()
+			this.castStateTimer = null
+		}
+	}
+
+	triggerCastState(duration = 100) {
+		this.setCastingState(true)
+		if (this.castStateTimer) {
+			this.castStateTimer.remove?.()
+			this.castStateTimer = null
+		}
+		const finalize = () => {
+			this.castStateTimer = null
+			this.setCastingState(false)
+		}
+		if (this.scene?.time) {
+			this.castStateTimer = this.scene.time.delayedCall(duration, finalize)
+		} else {
+			const timeoutId = setTimeout(finalize, duration)
+			this.castStateTimer = { remove: () => clearTimeout(timeoutId) }
+		}
+	}
+
+	die() {
+		if (this.isDead) return
+		this.isDead = true
+		this.paused = true
+		this.hitReacting = false
+		this.direction.x = 0
+		this.direction.y = 0
+		this.waypoints = []
+		this.dest = {}
+		if (this.moveTween) {
+			this.moveTween.stop()
+			this.moveTween = null
+		}
+		if (Array.isArray(this.tweens) && this.tweens.length) {
+			this.tweens.forEach((tween) => tween?.stop?.())
+			this.tweens.length = 0
+		}
+		if (this.body) {
+			this.body.setVelocity(0, 0)
+		}
+		const dieAnim = this.scene?.anims?.exists('Rotate')
+			? { key: 'Rotate', repeat: -1 }
+			: { key: this.scene?.anims?.exists('Die') ? 'Die' : 'Idle', repeat: 0 }
+		this.play(dieAnim)
+		if (this.scene?.events) {
+			this.scene.events.emit('doctor:died', this)
+		}
+		this.emit?.('died', this)
+	}
 }

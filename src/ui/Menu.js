@@ -8,8 +8,10 @@ export default class Menu extends Phaser.Physics.Arcade.Sprite {
         this.scene = scene;
 		this.scene.physics.add.existing(this);
         this.scene.add.existing(this);
-			this.healthBarWidth = 72 * this.scene.gameScale
+		this.healthBarWidth = 72 * this.scene.gameScale
 		this.healthBarHeight = 3
+		this.healthBarTween = null
+		this.lastHealthRatio = null
 		this.lastPauseState = !!this.scene?.doctor?.paused
 	}
     create(){
@@ -150,8 +152,29 @@ export default class Menu extends Phaser.Physics.Arcade.Sprite {
 		const ratio = typeof doctor.getHpRatio === 'function'
 			? doctor.getHpRatio()
 			: Math.min(1, Math.max(0, (doctor.hp ?? 0) / (doctor.maxHp || 1)))
-		const width = this.healthBarWidth * ratio
-		this.healthBarFill.displayWidth = Math.max(1, width)
+		const width = Math.max(1, this.healthBarWidth * ratio)
+		const ratioChanged = this.lastHealthRatio === null || Math.abs(ratio - this.lastHealthRatio) > 0.001
+		if (ratioChanged) {
+			const currentWidth = this.healthBarFill.displayWidth ?? width
+			if (this.healthBarTween) {
+				this.healthBarTween.stop()
+				this.healthBarTween = null
+			}
+			if (this.scene?.tweens && Math.abs(currentWidth - width) > 0.01) {
+				this.healthBarTween = this.scene.tweens.add({
+					targets: this.healthBarFill,
+					displayWidth: width,
+					duration: 200,
+					ease: 'Quad.easeOut',
+					onComplete: () => {
+						this.healthBarTween = null
+					},
+				})
+			} else {
+				this.healthBarFill.displayWidth = width
+			}
+			this.lastHealthRatio = ratio
+		}
 		const visible = this.shouldShowHealthBar()
 		this.healthBarFill.visible = visible && ratio > 0
 		this.healthBarBg.visible = visible

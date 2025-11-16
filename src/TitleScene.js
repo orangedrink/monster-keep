@@ -83,6 +83,11 @@ const slimeTween = {
 	};
 
 const titleTileSpawners = []
+const titleEnemyCardDeck = [
+	{ key: 'slime', label: 'Scouting Slimes', count: 5, textureKey: 'slime' },
+	{ key: 'slime', label: 'Toxic Slimes', count: 10, textureKey: 'slime', tint: 0x82ffc7 },
+	{ key: 'slime', label: 'Grand Slimes', count: 15, textureKey: 'slime', tint: 0xffe29a },
+]
 
 export default class TitleScene extends BaseScene {
 	constructor() {
@@ -90,6 +95,7 @@ export default class TitleScene extends BaseScene {
 			levelData: 'topdown/tiles/titleScreen.json',
 			levelScripts: levelScripts,
 			tileSpawners: titleTileSpawners,
+			enemyCards: titleEnemyCardDeck,
 		})
 	}
 }

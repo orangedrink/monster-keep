@@ -10,10 +10,11 @@ export default class Slime extends Phaser.Physics.Arcade.Sprite {
 		this.home = new Phaser.Math.Vector2(x, y)
 		this.wanderRadius = (config.wanderRadius ?? 60) * this.scene.gameScale
 		this.moveDuration = config.moveDuration ?? 1600
-		this.chaseSpeed = (config.chaseSpeed ?? 16) * this.scene.gameScale
+		this.chaseSpeed = (config.chaseSpeed ?? 32) * this.scene.gameScale
 		this.baseDepth = config.depth ?? 0.9
 		this.tileSize = 16 * this.scene.gameScale
 		this.lookAheadDistance = this.tileSize * 0.6
+		this.isFriendly = !!config.isFriendly
 
 		this.scene.physics.add.existing(this)
 		this.scene.add.existing(this)
@@ -25,7 +26,8 @@ export default class Slime extends Phaser.Physics.Arcade.Sprite {
 	}
 
 	applyScaleMultiplier(multiplier = 1) {
-		this.scaleMultiplier = multiplier
+		const clamped = Phaser.Math.Clamp(multiplier, 0.05, 3)
+		this.scaleMultiplier = clamped
 		const visualScale = (this.scene?.gameScale ?? 1) * this.scaleMultiplier
 		this.setScale(visualScale * 0.5)
 		const bodyWidth = this.width * .5
@@ -35,6 +37,18 @@ export default class Slime extends Phaser.Physics.Arcade.Sprite {
 		} else {
 			this.setSize(bodyWidth, bodyHeight)
 		}
+	}
+
+	handleHit({ reduction = 0.2, survivalThreshold = 1 } = {}) {
+		const currentScale = typeof this.scaleMultiplier === 'number' ? this.scaleMultiplier : 1
+		const minAllowedScale = Math.max(survivalThreshold, 0.05)
+		if (currentScale <= minAllowedScale) {
+			return true
+		}
+		const rawNextScale = currentScale - reduction
+		const nextScale = Math.max(rawNextScale, minAllowedScale)
+		this.applyScaleMultiplier(nextScale)
+		return nextScale <= survivalThreshold
 	}
 
 	create() {
@@ -64,7 +78,7 @@ export default class Slime extends Phaser.Physics.Arcade.Sprite {
 			targets: this,
 			x: target.x,
 			y: target.y,
-			duration: Phaser.Math.Between(this.moveDuration * 0.6, this.moveDuration * 1.3),
+			duration: 3000,
 			ease: 'Sine.easeInOut',
 			onComplete: () => {
 				this.setAnimation('idle')
@@ -99,9 +113,9 @@ export default class Slime extends Phaser.Physics.Arcade.Sprite {
 	}
 
 	setAnimation(key) {
-		if (this.currentAnim === key) return
+		if (!this.anims || this.currentAnim === key) return
 		this.currentAnim = key
-		this.play({ key, repeat: -1 })
+		this?.play({ key, repeat: -1 })
 	}
 
 	updateChaseBehavior() {
@@ -196,6 +210,61 @@ export default class Slime extends Phaser.Physics.Arcade.Sprite {
 			}
 		}
 		return null
+	}
+
+	getScaleValue() {
+		return typeof this.scaleMultiplier === 'number' ? this.scaleMultiplier : 1
+	}
+
+	canMergeWith(other) {
+		if (!other || other === this) return false
+		if (!other.active || !this.active) return false
+		if (this.consumed || other.consumed) return false
+		if (typeof other.isFriendly === 'boolean' && typeof this.isFriendly === 'boolean') {
+			if (other.isFriendly !== this.isFriendly) return false
+		}
+		return true
+	}
+
+	resolveMergePair(other) {
+		if (!this.canMergeWith(other)) return null
+		const thisScale = this.getScaleValue()
+		const otherScale = typeof other.getScaleValue === 'function'
+			? other.getScaleValue()
+			: (typeof other.scaleMultiplier === 'number' ? other.scaleMultiplier : 1)
+		const bigger = thisScale >= otherScale ? this : other
+		const smaller = bigger === this ? other : this
+		return { bigger, smaller }
+	}
+
+	mergeWithSlime(other) {
+		const pair = this.resolveMergePair(other)
+		if (!pair) return null
+		const { bigger, smaller } = pair
+		if (!bigger || !smaller) return null
+		bigger.absorbSlime(smaller)
+		return pair
+	}
+
+	absorbSlime(smaller) {
+		if (!smaller || smaller === this) return
+		if (!smaller.active || smaller.consumed) return
+		smaller.consumed = true
+		const smallerScale = typeof smaller.getScaleValue === 'function'
+			? smaller.getScaleValue()
+			: (typeof smaller.scaleMultiplier === 'number' ? smaller.scaleMultiplier : 1)
+		const growth = smallerScale * 0.5
+		const newScale = this.getScaleValue() + growth
+		if (typeof this.applyScaleMultiplier === 'function') {
+			this.applyScaleMultiplier(newScale)
+		} else {
+			const visualScale = (this.scene?.gameScale ?? 1) * newScale
+			this.setScale(visualScale)
+			this.scaleMultiplier = newScale
+		}
+		if (typeof smaller.destroy === 'function') {
+			smaller.destroy()
+		}
 	}
 
 	getProjectedDistanceToTarget(vx, vy, target) {

@@ -3,7 +3,7 @@
         "height": 4300,
         "width": 2
     },
-    "activeFile": "",
+    "activeFile": "titleScreen.tmx",
     "expandedProjectPaths": [
         "."
     ],
@@ -18,14 +18,14 @@
         },
         "titleScreen.tmx": {
             "scale": 0.75,
-            "selectedLayer": 2,
+            "selectedLayer": 1,
             "viewCenter": {
-                "x": 698.6666666666666,
-                "y": 753.9999999999999
+                "x": 714.6666666666665,
+                "y": 295.33333333333326
             }
         },
         "titleScreen.tmx#tileset": {
-            "scaleInDock": 1.5,
+            "scaleInDock": 1,
             "scaleInEditor": 1
         },
         "titleScreen.tmx#walls": {

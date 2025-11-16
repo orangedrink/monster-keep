@@ -45,8 +45,8 @@ export default function createFireballEffect(scene, opts = {}) {
 	}
 }
 
-export function createImpactLight(scene, x, y) {
-	const light = scene.lights.addLight(x, y, 140 * scene.gameScale, 0xfff1a1, 1)
+export function createImpactLight(scene, x, y, color = 0xfff1a1) {
+	const light = scene.lights.addLight(x, y, 140 * scene.gameScale, color, 1)
 	scene.tweens.add({
 		targets: light,
 		intensity: { from: 1, to: 0 },

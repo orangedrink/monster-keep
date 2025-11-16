@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import Topdown from './topdown/Topdown.js'
 import Doctor from './topdown/Doctor.js'
 import Slime from './topdown/sprites/Slime.js'
+import AlliedSlime from './topdown/sprites/AlliedSlime.js'
 import Menu from './ui/Menu.js'
 import createSmokeEffect from './effects/createSmokeEffect.js'
 import createSparkEffect from './effects/createSparkEffect.js'
@@ -45,12 +46,14 @@ const createProjectileSpellDefinition = ({
 	volleyCount = 1,
 	spawnSparks = true,
 	spawnShadowSparks = false,
+	range = Infinity,
 }) => ({
 	key,
 	label,
 	iconColor,
 	autoTargetNearestEnemy: true,
 	cooldownMs,
+	targetRange: range,
 	createIcon: (scene, { size }) => {
 		const iconScale = (size / 44) * 0.7
 		const icon = new spriteClass(scene, {
@@ -174,28 +177,30 @@ const createProjectileSpellDefinition = ({
 })
 
 const SPELL_LIBRARY = {
-	fireball: createProjectileSpellDefinition({
-		key: 'fireball',
-		label: 'Fireball',
-		iconColor: 0xff6b18,
-		spriteClass: FireballSprite,
-		projectileScale: 0.65,
-		cooldownMs: 1000,
-		volleyCount: 4,
-		spawnSparks: true,
-		spawnShadowSparks: false,
-	}),
-	shadowbolt: createProjectileSpellDefinition({
-		key: 'shadowbolt',
-		label: 'Shadowbolt',
-		iconColor: 0x8c76ff,
-		spriteClass: ShadowboltSprite,
-		projectileScale: 0.6,
-		cooldownMs: 200,
-		volleyCount: 1,
-		spawnSparks: false,
-		spawnShadowSparks: true,
-	}),
+fireball: createProjectileSpellDefinition({
+	key: 'fireball',
+	label: 'Fireball',
+	iconColor: 0xff6b18,
+	spriteClass: FireballSprite,
+	projectileScale: 0.65,
+	cooldownMs: 230,
+	volleyCount: 1,
+	spawnSparks: true,
+	spawnShadowSparks: false,
+	range: 8580,
+}),
+shadowbolt: createProjectileSpellDefinition({
+	key: 'shadowbolt',
+	label: 'Shadowbolt',
+	iconColor: 0x8c76ff,
+	spriteClass: ShadowboltSprite,
+	projectileScale: 0.6,
+	cooldownMs: 300,
+	volleyCount: 2,
+	spawnSparks: false,
+	spawnShadowSparks: true,
+	range: 320,
+}),
 	fireball2: {
 		key: 'fireball2',
 		label: 'Firewisp',
@@ -203,6 +208,8 @@ const SPELL_LIBRARY = {
 		autoTargetNearestEnemy: false,
 		requiresTarget: false,
 		cooldownMs: 400,
+		spawnSparks: true,
+		spawnShadowSparks: false,
 		createIcon: (scene, { size }) => {
 			const iconScale = (size / 44) * 0.7
 			const icon = new FireballSprite(scene, {
@@ -257,7 +264,7 @@ const SPELL_LIBRARY = {
 							if (projectile.active) {
 								if (playEffect) {
 									createFireballEffect(scene, { x: projectile.x, y: projectile.y })
-									createImpactLight(scene, projectile.x, projectile.y)
+									createImpactLight(scene, projectile.x, projectile.y, scene.spawnSparks ? 0x5ff1a1 : null)
 								}
 								projectile.destroy()
 							}
@@ -326,7 +333,7 @@ const SPELL_LIBRARY = {
 							projectile.setRotation(Math.atan2(velocity.y, velocity.x))
 							if (scene.time) {
 								scene.createSmokeEffect(projectile.x, projectile.y, 0.45, 520)
-								scene.createSmokeEffect(projectile.x, projectile.y, 0.8, 90)
+								scene.createSparkEffect(projectile.x, projectile.y, 1.2, 130)
 							}
 							const enemy = scene.findEnemyNearPoint({ x: projectile.x, y: projectile.y }, hitRadius)
 							if (enemy) {
@@ -377,6 +384,18 @@ export default class BaseScene extends Phaser.Scene {
 		this.runTimerText = null;
 		this.runTimerStart = 0;
 		this.visibleSpellIndex = 0;
+		this.heldSpellKey = null;
+		this.heldSpellPointerId = null;
+		this.heldSpellPointer = null;
+		this.heldSpellButton = null;
+		this._pointerWorldPoint = new Phaser.Math.Vector2()
+		this.enemyCardConfigs = this.normalizeEnemyCardConfigs(props.enemyCards)
+		this.enemyCardContainers = []
+		this.friendlySlimes = []
+		this.friendlySlimeGroup = null
+		this.friendlySlimeMergeOverlap = null
+		this.friendlyEnemyOverlap = null
+		this.activeFriendlySpawners = []
 	}
 
 	getSpriteData() {
@@ -395,6 +414,49 @@ export default class BaseScene extends Phaser.Scene {
 					return entry
 				}
 				return null
+			})
+			.filter(Boolean)
+	}
+
+	normalizeEnemyCardConfigs(cards = []) {
+		const baseCards = [
+			{ key: 'slime', label: 'Slime Scouts', count: 6, textureKey: 'slime' },
+			{ key: 'slime', label: 'Toxic Oozes', count: 14, textureKey: 'slime' },
+			{ key: 'slime', label: 'Grand Slimes', count: 24, textureKey: 'slime' },
+		]
+		const source = Array.isArray(cards) && cards.length ? cards : baseCards
+		return source
+			.map((entry, idx) => {
+				if (!entry) return null
+				const textureKey = typeof entry.textureKey === 'string'
+					? entry.textureKey
+					: typeof entry.key === 'string'
+						? entry.key
+						: 'slime'
+				const label = typeof entry.label === 'string'
+					? entry.label
+					: this.formatEnemyCardLabel(textureKey)
+				const count = this.normalizeEnemyCardCount(entry.count)
+				const frame = typeof entry.frame === 'string' || typeof entry.frame === 'number'
+					? entry.frame
+					: null
+				const tint = typeof entry.tint === 'number'
+					? entry.tint
+					: typeof entry.color === 'number'
+						? entry.color
+						: null
+				const imageScale = typeof entry.imageScale === 'number'
+					? entry.imageScale
+					: null
+				return {
+					textureKey,
+					label,
+					count,
+					frame,
+					tint,
+					imageScale,
+					id: entry.id ?? `${textureKey}-${idx}`,
+				}
 			})
 			.filter(Boolean)
 	}
@@ -513,7 +575,17 @@ export default class BaseScene extends Phaser.Scene {
 
 	playDoctorCastAnimation() {
 		const doctor = this.doctor
-		if (!doctor?.anims || typeof doctor.play !== 'function') return
+		if (!doctor) return
+		const castFlagDuration = 250
+		if (typeof doctor.triggerCastState === 'function') {
+			doctor.triggerCastState(castFlagDuration)
+		} else {
+			doctor.casting = true
+			setTimeout(() => {
+				doctor.casting = false
+			}, castFlagDuration)
+		}
+		if (!doctor.anims || typeof doctor.play !== 'function') return
 		const castAnimKey = 'S-Walk'
 		const frameDurationMs = 100
 		const totalFrames = 3
@@ -557,7 +629,7 @@ export default class BaseScene extends Phaser.Scene {
 
 	spawnSlimeAt(x, y, config = {}) {
 		const providedScale = typeof config.scaleMultiplier === 'number' ? config.scaleMultiplier : null
-		const scaleMultiplier = providedScale ?? Phaser.Math.FloatBetween(1, 2)
+		const scaleMultiplier = providedScale ?? Phaser.Math.FloatBetween(1, 1.5)
 		const slime = this.spawnEnemySprite(Slime, x, y, {
 			wanderRadius: config.wanderRadius ?? 60,
 			moveDuration: config.moveDuration ?? 1600,
@@ -570,6 +642,32 @@ export default class BaseScene extends Phaser.Scene {
 		return slime
 	}
 
+	spawnFriendlySlimeAt(x, y, config = {}) {
+		const scaleMultiplier = typeof config.scaleMultiplier === 'number'
+			? config.scaleMultiplier
+			: Phaser.Math.FloatBetween(0.8, 1.2)
+		const friendly = new AlliedSlime(this, {
+			scene: this,
+			x,
+			y,
+			isFriendly: true,
+			scaleMultiplier,
+			wanderRadius: config.wanderRadius ?? 40,
+			chaseSpeed: config.chaseSpeed ?? 42 * this.gameScale,
+			attackPower: config.attackPower,
+			selfDamage: config.selfDamage,
+			tint: config.tint,
+		})
+		if (typeof friendly.create === 'function') {
+			friendly.create()
+		}
+		if (friendly.applyScaleMultiplier) {
+			friendly.applyScaleMultiplier(scaleMultiplier)
+		}
+		this.registerFriendlySlime(friendly)
+		return friendly
+	}
+
 	registerSlime(slime) {
 		if (!slime) return
 		if (!this.slimes) {
@@ -580,6 +678,17 @@ export default class BaseScene extends Phaser.Scene {
 			this.slimeGroup.add(slime)
 		}
 		this.setupSlimeMergeHandling()
+	}
+
+	registerFriendlySlime(slime) {
+		if (!slime) return
+		if (!this.friendlySlimes) {
+			this.friendlySlimes = []
+		}
+		this.friendlySlimes.push(slime)
+		if (this.friendlySlimeGroup) {
+			this.friendlySlimeGroup.add(slime)
+		}
 	}
 
 	setupSlimeMergeHandling() {
@@ -600,43 +709,71 @@ export default class BaseScene extends Phaser.Scene {
 		}
 	}
 
+	setupFriendlySlimeMergeHandling() {
+		if (!this.physics || !this.friendlySlimeGroup) return
+		if (this.friendlySlimeMergeOverlap) return
+		this.friendlySlimeMergeOverlap = this.physics.add.overlap(
+			this.friendlySlimeGroup,
+			this.friendlySlimeGroup,
+			this.handleSlimeMerge,
+			this.shouldProcessSlimeMerge,
+			this,
+		)
+		if (this.events) {
+			this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+				this.friendlySlimeMergeOverlap?.destroy?.()
+				this.friendlySlimeMergeOverlap = null
+			})
+			this.events.once(Phaser.Scenes.Events.DESTROY, () => {
+				this.friendlySlimeMergeOverlap?.destroy?.()
+				this.friendlySlimeMergeOverlap = null
+			})
+		}
+	}
+
 	shouldProcessSlimeMerge(slimeA, slimeB) {
-		if (!slimeA || !slimeB) return false
-		if (slimeA === slimeB) return false
-		if (!slimeA.active || !slimeB.active) return false
-		if (slimeA.consumed || slimeB.consumed) return false
-		return true
+		if (slimeA?.canMergeWith?.(slimeB)) return true
+		if (slimeB?.canMergeWith?.(slimeA)) return true
+		return false
 	}
 
 	handleSlimeMerge(slimeA, slimeB) {
 		if (!slimeA || !slimeB) return
-		if (!slimeA.active || !slimeB.active) return
-		const aScale = typeof slimeA.scaleMultiplier === 'number' ? slimeA.scaleMultiplier : 1
-		const bScale = typeof slimeB.scaleMultiplier === 'number' ? slimeB.scaleMultiplier : 1
-		const bigger = aScale >= bScale ? slimeA : slimeB
-		const smaller = bigger === slimeA ? slimeB : slimeA
-		this.consumeSmallerSlime(bigger, smaller)
+		let result = null
+		if (typeof slimeA.mergeWithSlime === 'function') {
+			result = slimeA.mergeWithSlime(slimeB)
+		}
+		if (!result && typeof slimeB.mergeWithSlime === 'function') {
+			result = slimeB.mergeWithSlime(slimeA)
+		}
+		if (!result) return
+		this.pruneInactiveSlimes()
+		this.pruneFriendlySlimes()
 	}
 
-	consumeSmallerSlime(bigger, smaller) {
-		if (!bigger?.active || !smaller?.active) return
-		if (smaller.consumed) return
-		smaller.consumed = true
-		const smallerScale = typeof smaller.scaleMultiplier === 'number' ? smaller.scaleMultiplier : 1
-		const growth = smallerScale * 0.5
-		const currentBigScale = typeof bigger.scaleMultiplier === 'number' ? bigger.scaleMultiplier : 1
-		const newScale = currentBigScale + growth
-		if (typeof bigger.applyScaleMultiplier === 'function') {
-			bigger.applyScaleMultiplier(newScale)
-		} else {
-			const visualScale = (this.gameScale ?? 1) * newScale
-			bigger.setScale(visualScale)
-			bigger.scaleMultiplier = newScale
+	shouldProcessFriendlyVsEnemyCollision(friendly, enemy) {
+		if (!friendly || !enemy) return false
+		if (!friendly.active || !enemy.active) return false
+		return true
+	}
+
+	handleFriendlySlimeCollision(friendly, enemy) {
+		if (!friendly || !enemy) return
+		if (!friendly.active || !enemy.active) return
+		const attackPower = typeof friendly.attackPower === 'number' ? friendly.attackPower : 0.35
+		const enemyDestroyed = this.handleSlimeDamage(enemy, { reduction: attackPower, survivalThreshold: 1 })
+		if (enemyDestroyed && enemy?.active) {
+			this.createSlimeExplosion(enemy.x, enemy.y, (this.gameScale ?? 1))
+			enemy.destroy()
+			this.pruneInactiveSlimes()
 		}
-		if (smaller.destroy) {
-			smaller.destroy()
+		const selfDamage = typeof friendly.selfDamage === 'number' ? friendly.selfDamage : 0.15
+		const friendlyDestroyed = this.handleSlimeDamage(friendly, { reduction: selfDamage, survivalThreshold: 0.4 })
+		if (friendlyDestroyed && friendly?.active) {
+			this.createSlimeExplosion(friendly.x, friendly.y, (this.gameScale ?? 1) * 0.8)
+			friendly.destroy()
+			this.pruneFriendlySlimes()
 		}
-		this.pruneInactiveSlimes()
 	}
 
 	handleSlimeDamage(slime, { reduction = 0.2, survivalThreshold = 1 } = {}) {
@@ -681,6 +818,51 @@ export default class BaseScene extends Phaser.Scene {
 	pruneInactiveSlimes() {
 		if (!this.slimes?.length) return
 		this.slimes = this.slimes.filter((slime) => slime && slime.active)
+	}
+
+	pruneFriendlySlimes() {
+		if (!this.friendlySlimes?.length) return
+		this.friendlySlimes = this.friendlySlimes.filter((slime) => slime && slime.active)
+	}
+
+	disbandFriendlySlimes() {
+		if (this.friendlySlimes?.length) {
+			this.friendlySlimes.forEach((slime) => slime?.destroy?.())
+		}
+		this.friendlySlimes = []
+		if (this.friendlySlimeGroup) {
+			this.friendlySlimeGroup.clear(true, true)
+		}
+		if (this.friendlyEnemyOverlap) {
+			this.friendlyEnemyOverlap.destroy()
+			this.friendlyEnemyOverlap = null
+		}
+		if (this.friendlySlimeMergeOverlap) {
+			this.friendlySlimeMergeOverlap.destroy()
+			this.friendlySlimeMergeOverlap = null
+		}
+	}
+
+	registerFriendlySpawner(event) {
+		if (!event) return
+		if (!this.activeFriendlySpawners) {
+			this.activeFriendlySpawners = []
+		}
+		this.activeFriendlySpawners.push(event)
+	}
+
+	unregisterFriendlySpawner(event) {
+		if (!event || !this.activeFriendlySpawners?.length) return
+		this.activeFriendlySpawners = this.activeFriendlySpawners.filter((handle) => handle && handle !== event)
+	}
+
+	disposeFriendlySpawners() {
+		if (!this.activeFriendlySpawners?.length) {
+			this.activeFriendlySpawners = []
+			return
+		}
+		this.activeFriendlySpawners.forEach((event) => event?.remove?.())
+		this.activeFriendlySpawners = []
 	}
 
 	destroyEnemiesAt(x, y, radius = 20 * this.gameScale, damage = 0.2) {
@@ -870,58 +1052,133 @@ export default class BaseScene extends Phaser.Scene {
 		})
 	}
 
-createEnemySpawner(config = {}) {
-	if (!this.time) return null
-	const interval = Math.max(250, config.interval ?? 4000)
-	const spawnHandler = typeof config.spawnHandler === 'function' ? config.spawnHandler : null
-	const spriteClass = config.spriteClass
+	createEnemySpawner(config = {}) {
+		if (!this.time) return null
+		const interval = Math.max(250, config.interval || 4000)
+		const spawnHandler = typeof config.spawnHandler === 'function' ? config.spawnHandler : null
+		const spriteClass = config.spriteClass
 		const spawnTween = config.spawnTween === null ? null : (config.spawnTween || GROW_TWEEN)
 		const maxSpawns = typeof config.maxSpawns === 'number'
 			? Math.max(0, config.maxSpawns)
 			: Infinity
-		let spawnCount = 0
-		let event = null
+		const isCompletable = Number.isFinite(maxSpawns)
+		const tileSize = ((this.topdown?.map?.tileWidth) ?? 16) * (this.gameScale ?? 1)
+		const activationTiles = typeof config.activationDistanceTiles === 'number'
+			? Math.max(0, config.activationDistanceTiles)
+			: 10
+		const activationRadius = activationTiles * tileSize
+		const activationRadiusSq = activationRadius > 0 ? activationRadius * activationRadius : null
+		const activationAnchor = {
+			x: typeof config.activationAnchor?.x === 'number'
+				? config.activationAnchor.x
+				: (config.position?.x ?? this.startx ?? 0),
+			y: typeof config.activationAnchor?.y === 'number'
+				? config.activationAnchor.y
+				: (config.position?.y ?? this.starty ?? 0),
+		}
+		const spawnerState = {
+			key: config.key || Phaser.Utils.String.UUID(),
+			maxSpawns,
+			spawned: 0,
+			active: false,
+			isCompletable,
+			completed: false,
+			remainingActiveEnemies: 0,
+			activationRadiusSq,
+			activationAnchor,
+		}
+		this.spawnCount++
+		if (isCompletable) {
+			this.uncompletedSpawns++
+		}
+		this.updateSpawnStats()
+		const handle = {
+			key: spawnerState.key,
+			event: null,
+			state: spawnerState,
+			destroy: () => {
+				handle.event?.remove?.()
+				handle.event = null
+			},
+		}
+		const markActivated = () => {
+			if (spawnerState.active) return
+			spawnerState.active = true
+			this.activeSpawns++
+		}
+		const updateCompletion = () => {
+			if (!spawnerState.isCompletable || spawnerState.completed) return
+			if (spawnerState.spawned >= spawnerState.maxSpawns && spawnerState.remainingActiveEnemies <= 0) {
+				spawnerState.completed = true
+				this.uncompletedSpawns = Math.max(0, this.uncompletedSpawns - 1)
+				this.updateSpawnStats()
+			}
+		}
+		const trackEnemyLifecycle = (enemy) => {
+			if (!enemy) return
+			spawnerState.remainingActiveEnemies++
+			const onDestroy = () => {
+				spawnerState.remainingActiveEnemies = Math.max(0, spawnerState.remainingActiveEnemies - 1)
+				updateCompletion()
+			}
+			if (typeof enemy.once === 'function') {
+				enemy.once('destroy', onDestroy)
+			} else if (typeof enemy.on === 'function') {
+				enemy.on('destroy', onDestroy)
+			}
+		}
 		const spawn = () => {
-			console.log(spawnCount, maxSpawns)
-			if (spawnCount >= maxSpawns) {
-				event?.remove?.()
+			if (spawnerState.isCompletable && spawnerState.spawned >= spawnerState.maxSpawns) {
+				handle.event?.remove?.()
 				return
+			}
+			if (spawnerState.activationRadiusSq !== null) {
+				const doctor = this.doctor
+				if (!doctor) {
+					return
+				}
+				const dx = doctor.x - spawnerState.activationAnchor.x
+				const dy = doctor.y - spawnerState.activationAnchor.y
+				if ((dx * dx + dy * dy) > spawnerState.activationRadiusSq) {
+					return
+				}
+				markActivated()
 			}
 			const position = this.resolveSpawnerPosition(config.position)
 			if (!position) return
+			const handleSpawnResult = (enemy) => {
+				if (!enemy) return
+				spawnerState.spawned++
+				trackEnemyLifecycle(enemy)
+				if (spawnTween) {
+					this.applySpawnTween(enemy, spawnTween)
+				}
+				updateCompletion()
+			}
 			if (spawnHandler) {
 				spawnHandler(this, position)
-				spawnCount++
+				spawnerState.spawned++
+				updateCompletion()
 				return
 			}
 			if (spriteClass) {
 				const enemy = this.spawnEnemySprite(spriteClass, position.x, position.y, config.spawnConfig || {})
-				if (enemy && spawnTween) {
-					this.applySpawnTween(enemy, spawnTween)
-				}
-				if (enemy) {
-					spawnCount++
-				}
+				handleSpawnResult(enemy)
 				return
 			}
 			const enemy = this.spawnSlimeAt(position.x, position.y, config.spawnConfig || {})
-			if (enemy && spawnTween) {
-				this.applySpawnTween(enemy, spawnTween)
-			}
-			if (enemy) {
-				spawnCount++
-			}
+			handleSpawnResult(enemy)
 		}
-		event = this.time.addEvent({
+		handle.event = this.time.addEvent({
 			delay: interval,
 			loop: true,
 			callback: spawn,
 		})
-		return {
-			key: config.key || Phaser.Utils.String.UUID(),
-			event,
-			destroy: () => event?.remove?.(),
-		}
+		return handle
+	}
+
+	updateSpawnStats() {
+		this.completedSpawns = Math.max(0, this.spawnCount - this.uncompletedSpawns)
 	}
 
 	resolveSpawnerPosition(position = {}) {
@@ -955,6 +1212,13 @@ createEnemySpawner(config = {}) {
 		this.lights.enable().setAmbientColor(0x555555);
 		this.cursors = this.input.keyboard.createCursorKeys();
 		this.input.addPointer(3);
+		this.input.on('pointerup', (pointer) => {
+			this.handleSpellButtonRelease(pointer)
+		})
+		this.input.on?.('pointercancel', (pointer) => {
+			this.handleSpellButtonRelease(pointer)
+		})
+		this.disableContextMenuForCanvas()
 
 
 		this.topdown = new Topdown(this, { key: 'tilemap', tileWidth: 16, tileHeight: 16 })
@@ -973,7 +1237,16 @@ createEnemySpawner(config = {}) {
 		this.slimes = []
 		this.slimeGroup = this.physics.add.group()
 		this.physics.add.overlap(this.doctor, this.slimeGroup, this.handleDoctorSlimeCollision, null, this)
+		this.friendlySlimeGroup = this.physics.add.group()
+		this.friendlyEnemyOverlap = this.physics.add.overlap(
+			this.friendlySlimeGroup,
+			this.slimeGroup,
+			this.handleFriendlySlimeCollision,
+			this.shouldProcessFriendlyVsEnemyCollision,
+			this,
+		)
 		this.setupSlimeMergeHandling()
+		this.setupFriendlySlimeMergeHandling()
 		const entityLayer = this.topdown.map.getObjectLayer('enemies')
 		if (entityLayer && Array.isArray(entityLayer.objects)) {
 			console.log('[BaseScene] Loaded entity objects:', entityLayer.objects)
@@ -997,7 +1270,7 @@ createEnemySpawner(config = {}) {
 					spawnConfig: {
 						wanderRadius: 60 * this.gameScale,
 						moveDuration: 1600,
-						chaseSpeed: 4 * this.gameScale,
+						chaseSpeed: 32 * this.gameScale,
 					},
 					spawnTween: GROW_TWEEN
 				})
@@ -1010,9 +1283,16 @@ createEnemySpawner(config = {}) {
 		this.initRunTimerOverlay()
 		this.setSpellUiVisible(true)
 		this.initSpellSystem()
+		this.initEnemyCardDeck()
 		this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
 			this.clearTargetSelection()
 			this.disposeRunTimerOverlay()
+			this.disposeFriendlySpawners()
+			this.disbandFriendlySlimes()
+		})
+		this.events.once(Phaser.Scenes.Events.DESTROY, () => {
+			this.disposeFriendlySpawners()
+			this.disbandFriendlySlimes()
 		})
 		this.processScripts();
 		this.initEnemySpawners();
@@ -1032,13 +1312,33 @@ createEnemySpawner(config = {}) {
 				slime.update()
 			})
 		}
-		if (this.panelDialog) this.panelDialog.update()
-			this.menu.update(time)
-			this.updateSpellUi()
-			this.updateTargetTracking()
-			this.updateRunTimerDisplay()
-
+		if (this.friendlySlimes?.length) {
+			for (let i = 0; i < this.friendlySlimes.length; i++) {
+				const slime = this.friendlySlimes[i]
+				if (!slime) continue
+				slime.update?.()
+				const scale = typeof slime.getScaleValue === 'function'
+					? slime.getScaleValue()
+					: typeof slime.scaleMultiplier === 'number'
+						? slime.scaleMultiplier
+						: 1
+				if (scale < 0.5) {
+					this.createSlimeExplosion(slime.x, slime.y, (this.gameScale ?? 1) * 0.7)
+					slime.destroy()
+					continue
+				}
+			}
+			this.pruneFriendlySlimes()
 		}
+		if (this.panelDialog) this.panelDialog.update()
+		this.menu.update(time)
+		this.updateSpellUi()
+		this.updateEnemyCardDeck()
+		this.updateTargetTracking()
+		this.updateRunTimerDisplay()
+		this.processHeldSpellCasting()
+
+	}
 
 	initSpellSystem() {
 		this.spellDefinitions = this.resolveSpellDefinitions(this.spellKeys)
@@ -1083,7 +1383,12 @@ createEnemySpawner(config = {}) {
 		})
 		label.setOrigin(0.5, 0)
 		label.setDepth(151)
-		container.add([bg, readyGlow, icon, label])
+		const cooldownBarHeight = Math.max(1, 1 * this.gameScale)
+		const cooldownBar = this.add.rectangle(size / 2, size + label.height + 4 + cooldownBarHeight / 2, size - 6 * this.gameScale, cooldownBarHeight, 0xfff2a0, 0.9)
+		cooldownBar.setOrigin(0.5, 0.5)
+		cooldownBar.setDepth(152)
+		cooldownBar.setScale(0, 1)
+		container.add([bg, readyGlow, icon, label, cooldownBar])
 
 		const arrowStyle = {
 			fontSize: `${Math.max(10, 12 * this.gameScale)}px`,
@@ -1120,7 +1425,7 @@ createEnemySpawner(config = {}) {
 		}
 		container.add([leftArrow, rightArrow])
 
-		const baseHeight = size + label.height + 4
+		const baseHeight = size + label.height + 4 + cooldownBarHeight + 2
 		container.setSize(size, baseHeight)
 
 		const hitScale = 2 // expand clickable area even more for easier tapping
@@ -1132,20 +1437,428 @@ createEnemySpawner(config = {}) {
 		container.setInteractive(hitRect, Phaser.Geom.Rectangle.Contains)
 		container.on('pointerdown', (pointer) => {
 			pointer?.event?.stopPropagation?.()
-			this.selectSpell(spell)
+			this.handleSpellButtonPress(spell, pointer, container)
+		})
+		container.on('pointerup', (pointer) => {
+			this.handleSpellButtonRelease(pointer)
+		})
+		container.on('pointerout', (pointer) => {
+			if (pointer?.isDown) {
+				return
+			}
+			this.handleSpellButtonRelease(pointer)
 		})
 		container.setData('spell', spell)
 		container.setData('bg', bg)
 		container.setData('icon', icon)
 		container.setData('readyGlow', readyGlow)
+		container.setData('cooldownBar', cooldownBar)
 		container.setData('iconBaseScaleX', icon?.scaleX ?? 1)
 		container.setData('iconBaseScaleY', icon?.scaleY ?? 1)
 		container.setData('buttonSize', size)
-		container.setData('buttonHeight', size + label.height + 4)
+		container.setData('buttonHeight', baseHeight)
 		container.setData('blocksPointerRouting', true)
 		container.setData('leftArrow', leftArrow)
 		container.setData('rightArrow', rightArrow)
 		return container
+	}
+
+	initEnemyCardDeck() {
+		this.disposeEnemyCardDeck()
+		if (!this.enemyCardConfigs?.length) return
+		this.enemyCardContainers = this.enemyCardConfigs
+			.map((config, idx) => this.createEnemyCard(config, idx))
+			.filter(Boolean)
+		if (!this.enemyCardContainers.length) return
+		this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+			this.disposeEnemyCardDeck()
+		})
+		this.events.once(Phaser.Scenes.Events.DESTROY, () => {
+			this.disposeEnemyCardDeck()
+		})
+		this.updateEnemyCardDeck()
+	}
+
+	createEnemyCard(config, index = 0) {
+		if (!config) return null
+		const width = 72 * this.gameScale * 0.5
+		const height = 102 * this.gameScale * 0.5
+		const container = this.add.container(0, 0)
+		container.setSize(width, height)
+		container.setDepth(153 + index)
+		container.setScrollFactor(1)
+		container.setVisible(false)
+		container.setAlpha(0)
+		const background = this.add.rectangle(0, 0, width, height, 0x0b0b13, 0.95)
+		background.setOrigin(0)
+		background.setStrokeStyle(3 * this.gameScale, 0xffffff, 0.95)
+		const inset = this.add.rectangle(0, 0, width - 5 * this.gameScale, height - 5 * this.gameScale, 0xffffff, 0.06)
+		inset.setOrigin(0)
+		inset.setPosition(2.5 * this.gameScale, 2.5 * this.gameScale)
+		const numberStyle = {
+			fontSize: `${Math.max(8, 12 * this.gameScale * 0.8)}px`,
+			fontFamily: 'Silkscreen',
+			color: '#ffe9a3',
+		}
+		const topNumber = this.add.text(width / 2, Math.max(0, (4 * this.gameScale) - 5), `${config.count}`, numberStyle)
+		topNumber.setOrigin(0.5, 0)
+		const labelStyle = {
+			fontSize: `${Math.max(8, 10 * this.gameScale)}px`,
+			fontFamily: 'Silkscreen',
+			color: '#ffffff',
+		}
+		const labelText = 'slime'
+		const label = this.add.text(width / 2, height - 4 * this.gameScale, labelText, labelStyle)
+		label.setOrigin(0.5, 1)
+		const shadow = this.add.ellipse(width / 2, height * 0.65, width * 0.55, 6 * this.gameScale, 0x000000, 0.25)
+		shadow.setOrigin(0.5)
+		let enemyImage = null
+			if (config.textureKey) {
+				enemyImage = this.add.sprite(width / 2, height * 0.45, config.textureKey, config.frame ?? 0)
+				enemyImage.setOrigin(0.5)
+				const naturalWidth = enemyImage.width || 1
+				const naturalHeight = enemyImage.height || 1
+				const maxWidth = width * 0.55
+				const maxHeight = height * 0.45
+				const baseScale = Math.min(maxWidth / naturalWidth, maxHeight / naturalHeight)
+				const imageScale = (config.imageScale ?? 1) * baseScale
+				enemyImage.setScale(imageScale)
+			}
+		const accent = this.add.rectangle(width / 2, height * 0.18, width - 8 * this.gameScale, 1 * this.gameScale, 0xffffff, 0.2)
+		accent.setOrigin(0.5)
+		const elements = [background, inset, shadow]
+		if (enemyImage) {
+			elements.push(enemyImage)
+		}
+		elements.push(accent, topNumber, bottomNumber, label)
+		container.add(elements)
+		container.setData('cardWidth', width)
+		container.setData('cardHeight', height)
+		container.setData('cardConfig', config)
+		const hitPadding = 12 * this.gameScale
+		const hitArea = new Phaser.Geom.Rectangle(-hitPadding, -hitPadding, width + hitPadding * 2, height + hitPadding * 2)
+		container.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains)
+		container.on('pointerdown', (pointer) => {
+			pointer?.event?.stopPropagation?.()
+			this.handleEnemyCardPress(container)
+		})
+		container.setData('blocksPointerRouting', true)
+		return container
+	}
+
+	updateEnemyCardDeck() {
+		if (!this.enemyCardContainers?.length || !this.menu) return
+		const anchor = this.getEnemyCardAnchor()
+		if (!anchor) return
+		const visible = (this.menu.alpha ?? 0) > 0.05
+		const alpha = visible ? this.menu.alpha : 0
+		const stackOffsetX = 10 * this.gameScale
+		const stackOffsetY = 14 * this.gameScale
+		const depthBase = 153
+		this.enemyCardContainers.forEach((card, idx) => {
+			if (!card) return
+			const reverseIdx = this.enemyCardContainers.length - 1 - idx
+			const x = anchor.startX + reverseIdx * stackOffsetX
+			const y = anchor.startY + reverseIdx * stackOffsetY
+			card.setPosition(x, y)
+			card.setDepth(depthBase + reverseIdx)
+			card.setVisible(visible)
+			card.setAlpha(alpha)
+			if (card.input) {
+				card.input.enabled = visible && idx === 0
+			}
+		})
+	}
+
+	getEnemyCardAnchor() {
+		const spellAnchor = this.computeSpellUiAnchor()
+		if (!spellAnchor) return null
+		const activeButton = this.spellButtons?.length
+			? this.spellButtons[this.visibleSpellIndex]
+			: null
+		const buttonWidth = activeButton?.getData?.('buttonSize') ?? 44 * this.gameScale
+		const spacing = 32 * this.gameScale
+		return {
+			startX: spellAnchor.startX + buttonWidth + spacing,
+			startY: spellAnchor.startY,
+		}
+	}
+
+	getTopEnemyCard() {
+		if (!this.enemyCardContainers?.length) return null
+		return this.enemyCardContainers[0]
+	}
+
+	handleEnemyCardPress(card) {
+		if (!card?.visible) return
+		const topCard = this.getTopEnemyCard()
+		if (!topCard || topCard !== card) return
+		const config = card.getData('cardConfig')
+		if (!config) return
+		const spawnCount = this.normalizeEnemyCardCount(config.count ?? 5)
+		this.deployFriendlySpawnerFromCard(config, spawnCount)
+		console.log(`[Enemy Deck] Spawning ${spawnCount} allied slimes from card: ${config.label || config.key || 'unknown'}`)
+		this.animateEnemyCardUse(card, () => {
+			this.removeEnemyCard(card)
+		})
+	}
+
+	deployFriendlySpawnerFromCard(config = {}, overrideCount = null) {
+		const total = typeof overrideCount === 'number'
+			? overrideCount
+			: this.normalizeEnemyCardCount(config.count ?? 5)
+		if (!total || total <= 0) return
+		if (!this.time) {
+			for (let i = 0; i < total; i++) {
+				this.spawnFriendlyUnitForConfig(config)
+			}
+			return
+		}
+		let spawned = 0
+		let spawnEvent = null
+		const spawnOne = () => {
+			this.spawnFriendlyUnitForConfig(config)
+			spawned++
+			if (spawned >= total) {
+				if (spawnEvent) {
+					this.unregisterFriendlySpawner(spawnEvent)
+					spawnEvent.remove(false)
+					spawnEvent = null
+				}
+			}
+		}
+		spawnOne()
+		if (spawned >= total) return
+		spawnEvent = this.time.addEvent({
+			delay: 360,
+			loop: true,
+			callback: spawnOne,
+		})
+		this.registerFriendlySpawner(spawnEvent)
+	}
+
+	spawnFriendlyUnitForConfig(config = {}) {
+		const spawnPoint = this.getFriendlySpawnPoint()
+		const offset = this.getFriendlySpawnOffset()
+		const x = spawnPoint.x + offset.x
+		const y = spawnPoint.y + offset.y
+		const type = (config.textureKey || config.key || 'slime').toLowerCase()
+		if (type.includes('slime')) {
+			return this.spawnFriendlySlimeAt(x, y, {
+				tint: config.tint,
+				scaleMultiplier: Phaser.Math.FloatBetween(0.7, 1.2),
+				attackPower: config.attackPower,
+				selfDamage: config.selfDamage,
+			})
+		}
+		return null
+	}
+
+	getFriendlySpawnPoint() {
+		if (this.doctor && this.doctor.active) {
+			return { x: this.doctor.x, y: this.doctor.y }
+		}
+		return { x: this.startx ?? 0, y: this.starty ?? 0 }
+	}
+
+	getFriendlySpawnOffset() {
+		const radius = 24 * this.gameScale
+		const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
+		const distance = Phaser.Math.FloatBetween(radius * 0.2, radius)
+		return {
+			x: Math.cos(angle) * distance,
+			y: Math.sin(angle) * distance,
+		}
+	}
+
+	animateEnemyCardUse(card, onComplete) {
+		if (!card || !this.tweens) {
+			onComplete?.()
+			return
+		}
+		this.tweens.add({
+			targets: card,
+			scale: { from: 1, to: 1.06 },
+			alpha: { from: card.alpha ?? 1, to: (card.alpha ?? 1) * 0.9 },
+			duration: 180,
+			yoyo: true,
+			onComplete: () => {
+				card.setScale(1)
+				card.setAlpha((this.menu?.alpha ?? 1))
+				onComplete?.()
+			},
+		})
+	}
+
+	removeEnemyCard(card) {
+		if (!card || !this.enemyCardContainers?.length) return
+		const index = this.enemyCardContainers.indexOf(card)
+		if (index === -1) return
+		this.enemyCardContainers.splice(index, 1)
+		card.destroy()
+		this.updateEnemyCardDeck()
+	}
+
+	disposeEnemyCardDeck() {
+		if (!this.enemyCardContainers?.length) {
+			this.enemyCardContainers = []
+			return
+		}
+		this.enemyCardContainers.forEach((card) => {
+			card?.destroy?.()
+		})
+		this.enemyCardContainers = []
+	}
+
+	handleSpellButtonPress(spell, pointer, button) {
+		if (!spell) return
+		this.setHeldSpell(spell, pointer, button)
+		this.selectSpell(spell)
+	}
+
+	handleSpellButtonRelease(pointer) {
+		if (!this.heldSpellKey) return
+		if (!this.doesPointerMatchHeld(pointer)) {
+			return
+		}
+		this.clearSpellSelection()
+	}
+
+	setHeldSpell(spell, pointer, button) {
+		if (!spell) {
+			this.clearHeldSpell()
+			return
+		}
+		this.heldSpellKey = spell.key
+		this.heldSpellPointerId = pointer?.pointerId ?? pointer?.id ?? null
+		this.heldSpellPointer = pointer || null
+		this.heldSpellButton = button ?? this.findSpellButtonByKey(spell.key)
+	}
+
+	clearHeldSpell() {
+		this.heldSpellKey = null
+		this.heldSpellPointerId = null
+		this.heldSpellPointer = null
+		this.heldSpellButton = null
+	}
+
+	getHeldSpellPointer() {
+		if (this.heldSpellPointer && this.pointerIdMatches(this.heldSpellPointer, this.heldSpellPointerId)) {
+			return this.heldSpellPointer
+		}
+		if (this.heldSpellPointerId === null || !this.input) {
+			return this.heldSpellPointer
+		}
+		const resolved = this.findPointerById(this.heldSpellPointerId)
+		if (resolved) {
+			this.heldSpellPointer = resolved
+		}
+		return this.heldSpellPointer
+	}
+
+	findPointerById(pointerId) {
+		if (pointerId === null || pointerId === undefined || !this.input) return null
+		const candidates = new Set()
+		if (Array.isArray(this.input.pointers)) {
+			this.input.pointers.forEach((ptr) => candidates.add(ptr))
+		}
+		const fallbackPointers = [
+			this.input.activePointer,
+			this.input.mousePointer,
+			this.input.pointer1,
+			this.input.pointer2,
+			this.input.pointer3,
+			this.input.pointer4,
+		]
+		fallbackPointers.forEach((ptr) => {
+			if (ptr) candidates.add(ptr)
+		})
+		for (const pointer of candidates) {
+			if (!pointer) continue
+			if (this.pointerIdMatches(pointer, pointerId)) {
+				return pointer
+			}
+		}
+		return null
+	}
+
+	pointerIdMatches(pointer, pointerId) {
+		if (!pointer) return false
+		if (pointerId === null || pointerId === undefined) return true
+		return pointer.pointerId === pointerId || pointer.id === pointerId
+	}
+
+	getHeldSpellButton() {
+		if (this.heldSpellButton && this.heldSpellButton.scene === this) {
+			return this.heldSpellButton
+		}
+		if (!this.heldSpellKey) return null
+		const button = this.findSpellButtonByKey(this.heldSpellKey)
+		this.heldSpellButton = button || null
+		return this.heldSpellButton
+	}
+
+	findSpellButtonByKey(spellKey) {
+		if (!spellKey || !Array.isArray(this.spellButtons)) return null
+		return this.spellButtons.find((button) => button?.getData?.('spell')?.key === spellKey) || null
+	}
+
+	isPointerCurrentlyPressed(pointer) {
+		if (!pointer) return false
+		if (pointer.isDown) return true
+		if (pointer.primaryDown) return true
+		if (typeof pointer.leftButtonDown === 'function' && pointer.leftButtonDown()) return true
+		if (typeof pointer.rightButtonDown === 'function' && pointer.rightButtonDown()) return true
+		return false
+	}
+
+	isPointerTouchingButton(pointer, button) {
+		if (!pointer || !button) return false
+		if (!button.visible || button.active === false) return false
+		const bounds = button.getBounds?.()
+		if (!bounds) return false
+		const padding = Math.max(16, 24 * this.gameScale)
+		const hitRect = new Phaser.Geom.Rectangle(bounds.x, bounds.y, bounds.width, bounds.height)
+		Phaser.Geom.Rectangle.Inflate(hitRect, padding, padding)
+		const worldPoint = this.getPointerWorldPosition(pointer)
+		if (!worldPoint) return false
+		return Phaser.Geom.Rectangle.Contains(hitRect, worldPoint.x, worldPoint.y)
+	}
+
+	isHeldSpellPressActive() {
+		const pointer = this.getHeldSpellPointer()
+		if (!this.isPointerCurrentlyPressed(pointer)) {
+			return false
+		}
+		const button = this.getHeldSpellButton()
+		return this.isPointerTouchingButton(pointer, button)
+	}
+
+	doesPointerMatchHeld(pointer) {
+		if (!pointer) return true
+		if (this.heldSpellPointer && pointer === this.heldSpellPointer) {
+			return true
+		}
+		const pointerId = pointer?.pointerId ?? pointer?.id ?? null
+		if (pointerId === null || this.heldSpellPointerId === null) {
+			return true
+		}
+		return pointerId === this.heldSpellPointerId
+	}
+
+	getPointerWorldPosition(pointer) {
+		if (!pointer) return null
+		const camera = this.cameras?.main
+		const x = pointer.x ?? pointer.clientX ?? 0
+		const y = pointer.y ?? pointer.clientY ?? 0
+		if (!camera || typeof camera.getWorldPoint !== 'function') {
+			return { x, y }
+		}
+		if (!this._pointerWorldPoint) {
+			this._pointerWorldPoint = new Phaser.Math.Vector2()
+		}
+		camera.getWorldPoint(x, y, this._pointerWorldPoint)
+		return { x: this._pointerWorldPoint.x, y: this._pointerWorldPoint.y }
 	}
 
 	selectSpell(spell) {
@@ -1169,12 +1882,18 @@ createEnemySpawner(config = {}) {
 			return
 		}
 		if (!this.selectedTarget && spell.autoTargetNearestEnemy) {
-			this.selectNearestEnemyTarget()
+			const nearest = this.selectNearestEnemyTarget({
+				range: typeof spell.targetRange === 'number' ? spell.targetRange : null,
+			})
+			if (!nearest && spell.requiresTarget !== false) {
+				return
+			}
 		}
 		this.attemptImmediateCast()
 	}
 
 	clearSpellSelection() {
+		this.clearHeldSpell()
 		this.activeSpellKey = null
 		this.input.setDefaultCursor('default')
 		this.updateSpellButtonStates()
@@ -1185,9 +1904,28 @@ createEnemySpawner(config = {}) {
 		this.spellButtons.forEach((btn) => {
 			const spell = btn.getData('spell')
 			const bg = btn.getData('bg')
-			const isSelected = spell.key === this.activeSpellKey
-			bg.setStrokeStyle(2 * (isSelected ? 1.5 : 1), isSelected ? 0xfff2a0 : 0xffffff, isSelected ? 0.9 : 0.25)
-			btn.setAlpha(this.menu?.alpha ?? 1)
+			const readyGlow = btn.getData('readyGlow')
+			const icon = btn.getData('icon')
+			const cooldownBar = btn.getData('cooldownBar')
+			const isReady = spell ? !this.isSpellOnCooldown(spell) : false
+			const cooldownRatio = this.getSpellCooldownRatio(spell)
+			const strokeWidth = 2 * (isReady ? 1.5 : 1)
+			const strokeColor = isReady ? 0xfff2a0 : 0xffffff
+			const strokeAlpha = isReady ? 0.9 : 0.2
+			bg?.setStrokeStyle(strokeWidth, strokeColor, strokeAlpha)
+			if (icon) {
+				icon.setAlpha(isReady ? 1 : 0.45)
+			}
+			if (readyGlow) {
+				const glowVisible = isReady && btn.visible
+				readyGlow.setVisible(glowVisible)
+				readyGlow.setAlpha(glowVisible ? 1 : 0)
+			}
+			if (cooldownBar) {
+				const fillRatio = Phaser.Math.Clamp(cooldownRatio, 0, 1)
+				cooldownBar.setScale(fillRatio, 1)
+				cooldownBar.setAlpha(btn.visible ? 1 : 0)
+			}
 		})
 	}
 
@@ -1224,6 +1962,7 @@ createEnemySpawner(config = {}) {
 				this.pauseButtonIconAnimation(btn)
 			}
 		})
+		this.updateSpellButtonStates()
 	}
 
 	computeSpellUiAnchor() {
@@ -1278,6 +2017,45 @@ createEnemySpawner(config = {}) {
 		this.updateSelectionUI()
 	}
 
+	processHeldSpellCasting() {
+		if (!this.heldSpellKey) return
+		if (!this.isHeldSpellPressActive()) {
+			this.clearHeldSpell()
+			return
+		}
+		if (this.doctorDead) {
+			this.clearHeldSpell()
+			return
+		}
+		const spell = this.spellDefinitions.find((s) => s.key === this.heldSpellKey)
+		if (!spell) {
+			this.clearHeldSpell()
+			return
+		}
+		if (this.isSpellOnCooldown(spell)) return
+		if (!this.isHeldSpellPressActive()) {
+			this.clearHeldSpell()
+			return
+		}
+		if (this.activeSpellKey !== spell.key) {
+			this.activeSpellKey = spell.key
+			this.input.setDefaultCursor(this.spellCursor)
+			this.updateSpellButtonStates()
+		}
+		if (spell.requiresTarget === false) {
+			const point = this.doctor ? { x: this.doctor.x, y: this.doctor.y } : null
+			if (!point) return
+			this.castSpellAtPoint(point)
+			return
+		}
+		if (!this.selectedTarget && spell.autoTargetNearestEnemy) {
+			const nearest = this.selectNearestEnemyTarget({ range: spell.targetRange })
+			if (!nearest) return
+		}
+		if (!this.selectedTarget) return
+		this.attemptImmediateCast()
+	}
+
 	selectTargetSprite(sprite) {
 		const locked = sprite && sprite.active ? sprite : this.findNearestEnemyToPoint({ x: sprite?.x ?? 0, y: sprite?.y ?? 0 }) || sprite
 		this.selectedTarget = {
@@ -1310,26 +2088,28 @@ createEnemySpawner(config = {}) {
 		}
 	}
 
-	selectNearestEnemyTarget() {
+	selectNearestEnemyTarget({ range = null } = {}) {
 		const originX = this.doctor?.x ?? 0
 		const originY = this.doctor?.y ?? 0
-		const nearest = this.findNearestEnemyToPoint({ x: originX, y: originY })
+		const nearest = this.findNearestEnemyToPoint({ x: originX, y: originY }, { range })
 		if (!nearest) return null
 		this.selectTargetSprite(nearest)
 		return nearest
 	}
 
-	findNearestEnemyToPoint(point) {
+	findNearestEnemyToPoint(point, { range = null } = {}) {
 		const targets = this.getSelectableTargets()
 		if (!targets.length || !point) return null
 		let nearest = null
 		let nearestDistSq = Number.POSITIVE_INFINITY
+		const maxRangeSq = typeof range === 'number' && range > 0 ? range * range : null
 		for (let i = 0; i < targets.length; i++) {
 			const sprite = targets[i]
 			if (!sprite?.active) continue
 			const dx = sprite.x - point.x
 			const dy = sprite.y - point.y
 			const distSq = dx * dx + dy * dy
+			if (maxRangeSq !== null && distSq > maxRangeSq) continue
 			if (distSq < nearestDistSq) {
 				nearest = sprite
 				nearestDistSq = distSq
@@ -1416,13 +2196,15 @@ createEnemySpawner(config = {}) {
 		if (!this.activeSpellKey) return
 		if (!this.selectedTarget) return
 		if (this.selectedTarget.type === 'point') {
-			const nearest = this.findNearestEnemyToPoint(this.selectedTarget.position)
+			const spell = this.spellDefinitions.find((s) => s.key === this.activeSpellKey)
+			const nearest = this.findNearestEnemyToPoint(this.selectedTarget.position, { range: spell?.targetRange })
 			if (nearest) {
 				this.castSpellAtPoint({ x: nearest.x, y: nearest.y })
 			}
 		} else if (this.selectedTarget.type === 'sprite') {
 			const sprite = this.selectedTarget.sprite
-			const targetSprite = sprite?.active ? sprite : this.findNearestEnemyToPoint({ x: sprite?.x ?? 0, y: sprite?.y ?? 0 })
+			const spell = this.spellDefinitions.find((s) => s.key === this.activeSpellKey)
+			const targetSprite = sprite?.active ? sprite : this.findNearestEnemyToPoint({ x: sprite?.x ?? 0, y: sprite?.y ?? 0 }, { range: spell?.targetRange })
 			if (targetSprite?.active) {
 				this.castSpellAtPoint({ x: targetSprite.x, y: targetSprite.y })
 			}
@@ -1515,6 +2297,32 @@ createEnemySpawner(config = {}) {
 		return value.toString().padStart(length, '0')
 	}
 
+	formatEnemyCardLabel(key = '') {
+		if (!key) return 'Enemy'
+		const parts = key.split(/[-_]/g).filter(Boolean)
+		if (!parts.length) {
+			return key.charAt(0).toUpperCase() + key.slice(1)
+		}
+		return parts
+			.map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+			.join(' ')
+	}
+
+	normalizeEnemyCardCount(value) {
+		const allowed = [5, 10, 15]
+		const numeric = typeof value === 'number' ? value : 5
+		let closest = allowed[0]
+		let smallestDiff = Math.abs(numeric - closest)
+		for (let i = 1; i < allowed.length; i++) {
+			const diff = Math.abs(numeric - allowed[i])
+			if (diff < smallestDiff) {
+				smallestDiff = diff
+				closest = allowed[i]
+			}
+		}
+		return closest
+	}
+
 	getSceneTimestamp() {
 		if (this.time && typeof this.time.now === 'number') {
 			return this.time.now
@@ -1567,7 +2375,8 @@ createEnemySpawner(config = {}) {
 		this.playDoctorCastAnimation()
 		spell.onCast(this, { x: point.x, y: point.y })
 		this.startSpellCooldown(spell)
-		if (!spell.keepSelection) {
+		const holdingSpell = this.heldSpellKey && this.heldSpellKey === spell.key
+		if (!spell.keepSelection && !holdingSpell) {
 			this.clearSpellSelection()
 		}
 		return true
@@ -1585,9 +2394,62 @@ createEnemySpawner(config = {}) {
 		}
 	}
 
+	disableContextMenuForCanvas() {
+		const mouse = this.input?.mouse
+		if (mouse?.disableContextMenu) {
+			mouse.disableContextMenu()
+		}
+		const canvas = this.game?.canvas
+		if (!canvas) return
+		const blockContextMenu = (event) => {
+			if (!event) return
+			const path = typeof event.composedPath === 'function' ? event.composedPath() : null
+			const targetIsCanvas = event.target === canvas
+				|| (Array.isArray(path) && path.includes(canvas))
+			if (!targetIsCanvas) return
+			event.preventDefault?.()
+			event.stopPropagation?.()
+		}
+		if (!this._contextMenuBlocker) {
+			this._contextMenuBlocker = blockContextMenu
+			window?.addEventListener?.('contextmenu', this._contextMenuBlocker, true)
+			document?.addEventListener?.('contextmenu', this._contextMenuBlocker, true)
+			this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+				this.removeContextMenuBlocker()
+			})
+			this.events.once(Phaser.Scenes.Events.DESTROY, () => {
+				this.removeContextMenuBlocker()
+			})
+		}
+		canvas.oncontextmenu = (event) => {
+			blockContextMenu(event)
+			return false
+		}
+		if (canvas.style) {
+			canvas.style.touchAction = 'none'
+			canvas.style.msTouchAction = 'none'
+		}
+	}
+
+	removeContextMenuBlocker() {
+		if (!this._contextMenuBlocker) return
+		window?.removeEventListener?.('contextmenu', this._contextMenuBlocker, true)
+		document?.removeEventListener?.('contextmenu', this._contextMenuBlocker, true)
+		this._contextMenuBlocker = null
+	}
+
 	pauseButtonIconAnimation(btn) {
 		const icon = btn?.getData?.('icon')
 		if (!icon?.anims?.isPlaying) return
 		icon.anims.pause()
+	}
+	getSpellCooldownRatio(spell) {
+		if (!spell?.key || !spell.cooldownMs) return 1
+		if (!this.time) return 1
+		const expiresAt = this.spellCooldowns[spell.key] || 0
+		const remaining = expiresAt - this.time.now
+		if (remaining <= 0) return 1
+		const ratio = 1 - (remaining / spell.cooldownMs)
+		return Phaser.Math.Clamp(ratio, 0, 1)
 	}
 }
