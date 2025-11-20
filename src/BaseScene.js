@@ -396,6 +396,11 @@ export default class BaseScene extends Phaser.Scene {
 		this.friendlySlimeMergeOverlap = null
 		this.friendlyEnemyOverlap = null
 		this.activeFriendlySpawners = []
+		this.spawnCount = 0
+		this.totalSpawnCount = 0
+		this.uncompletedSpawns = 0
+		this.completedSpawns = 0
+		this.activeSpawns = 0
 	}
 
 	getSpriteData() {
@@ -1076,6 +1081,7 @@ export default class BaseScene extends Phaser.Scene {
 				? config.activationAnchor.y
 				: (config.position?.y ?? this.starty ?? 0),
 		}
+		const countsTowardCompletion = config.countsTowardCompletion !== false && isCompletable
 		const spawnerState = {
 			key: config.key || Phaser.Utils.String.UUID(),
 			maxSpawns,
@@ -1086,12 +1092,14 @@ export default class BaseScene extends Phaser.Scene {
 			remainingActiveEnemies: 0,
 			activationRadiusSq,
 			activationAnchor,
+			countsTowardCompletion,
 		}
-		this.spawnCount++
-		if (isCompletable) {
+		if (countsTowardCompletion) {
+			this.spawnCount++
+			this.totalSpawnCount++
 			this.uncompletedSpawns++
+			this.updateSpawnStats()
 		}
-		this.updateSpawnStats()
 		const handle = {
 			key: spawnerState.key,
 			event: null,
@@ -1110,8 +1118,11 @@ export default class BaseScene extends Phaser.Scene {
 			if (!spawnerState.isCompletable || spawnerState.completed) return
 			if (spawnerState.spawned >= spawnerState.maxSpawns && spawnerState.remainingActiveEnemies <= 0) {
 				spawnerState.completed = true
-				this.uncompletedSpawns = Math.max(0, this.uncompletedSpawns - 1)
-				this.updateSpawnStats()
+				if (spawnerState.countsTowardCompletion) {
+					this.uncompletedSpawns = Math.max(0, this.uncompletedSpawns - 1)
+					this.spawnCount = Math.max(0, this.spawnCount - 1)
+					this.updateSpawnStats()
+				}
 			}
 		}
 		const trackEnemyLifecycle = (enemy) => {
@@ -1178,7 +1189,7 @@ export default class BaseScene extends Phaser.Scene {
 	}
 
 	updateSpawnStats() {
-		this.completedSpawns = Math.max(0, this.spawnCount - this.uncompletedSpawns)
+		this.completedSpawns = Math.max(0, this.totalSpawnCount - this.uncompletedSpawns)
 	}
 
 	resolveSpawnerPosition(position = {}) {
@@ -1524,13 +1535,11 @@ export default class BaseScene extends Phaser.Scene {
 				const imageScale = (config.imageScale ?? 1) * baseScale
 				enemyImage.setScale(imageScale)
 			}
-		const accent = this.add.rectangle(width / 2, height * 0.18, width - 8 * this.gameScale, 1 * this.gameScale, 0xffffff, 0.2)
-		accent.setOrigin(0.5)
 		const elements = [background, inset, shadow]
 		if (enemyImage) {
 			elements.push(enemyImage)
 		}
-		elements.push(accent, topNumber, bottomNumber, label)
+		elements.push(topNumber, label)
 		container.add(elements)
 		container.setData('cardWidth', width)
 		container.setData('cardHeight', height)
@@ -1630,7 +1639,7 @@ export default class BaseScene extends Phaser.Scene {
 		spawnOne()
 		if (spawned >= total) return
 		spawnEvent = this.time.addEvent({
-			delay: 360,
+			delay: 160,
 			loop: true,
 			callback: spawnOne,
 		})
@@ -1646,7 +1655,7 @@ export default class BaseScene extends Phaser.Scene {
 		if (type.includes('slime')) {
 			return this.spawnFriendlySlimeAt(x, y, {
 				tint: config.tint,
-				scaleMultiplier: Phaser.Math.FloatBetween(0.7, 1.2),
+				scaleMultiplier: Phaser.Math.FloatBetween(1.2, 1.8),
 				attackPower: config.attackPower,
 				selfDamage: config.selfDamage,
 			})
@@ -2309,7 +2318,7 @@ export default class BaseScene extends Phaser.Scene {
 	}
 
 	normalizeEnemyCardCount(value) {
-		const allowed = [5, 10, 15]
+		const allowed = [10, 20, 50]
 		const numeric = typeof value === 'number' ? value : 5
 		let closest = allowed[0]
 		let smallestDiff = Math.abs(numeric - closest)

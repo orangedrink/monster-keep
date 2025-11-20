@@ -78,49 +78,49 @@
   <object id="28" name="spawner1" type="Slime" x="101.333" y="106" width="26.6667" height="22.6667">
    <properties>
     <property name="interval" type="int" value="100"/>
-    <property name="maxSpawns" type="int" value="100"/>
+    <property name="maxSpawns" type="int" value="10"/>
    </properties>
   </object>
   <object id="29" name="spawner1" type="Slime" x="795" y="47.6667" width="12" height="10.6667">
    <properties>
     <property name="interval" type="int" value="300"/>
-    <property name="maxSpawns" type="int" value="50"/>
+    <property name="maxSpawns" type="int" value="10"/>
    </properties>
   </object>
   <object id="30" name="spawner1" type="Slime" x="926.333" y="45.3333" width="12" height="10.6667">
    <properties>
     <property name="interval" type="int" value="300"/>
-    <property name="maxSpawns" type="int" value="50"/>
+    <property name="maxSpawns" type="int" value="10"/>
    </properties>
   </object>
   <object id="31" name="spawner1" type="Slime" x="220.667" y="49.3333" width="12" height="10.6667">
    <properties>
     <property name="interval" type="int" value="300"/>
-    <property name="maxSpawns" type="int" value="50"/>
+    <property name="maxSpawns" type="int" value="10"/>
    </properties>
   </object>
   <object id="32" name="spawner1" type="Slime" x="92.6667" y="48" width="12" height="10.6667">
    <properties>
     <property name="interval" type="int" value="300"/>
-    <property name="maxSpawns" type="int" value="50"/>
+    <property name="maxSpawns" type="int" value="10"/>
    </properties>
   </object>
   <object id="33" name="spawner1" type="Slime" x="110" y="912" width="12" height="10.6667">
    <properties>
     <property name="interval" type="int" value="300"/>
-    <property name="maxSpawns" type="int" value="50"/>
+    <property name="maxSpawns" type="int" value="10"/>
    </properties>
   </object>
   <object id="34" name="spawner1" type="Slime" x="910" y="916" width="12" height="10.6667">
    <properties>
     <property name="interval" type="int" value="300"/>
-    <property name="maxSpawns" type="int" value="50"/>
+    <property name="maxSpawns" type="int" value="10"/>
    </properties>
   </object>
   <object id="35" name="spawner1" type="Slime" x="905.333" y="110.667" width="12" height="10.6667">
    <properties>
     <property name="interval" type="int" value="300"/>
-    <property name="maxSpawns" type="int" value="200"/>
+    <property name="maxSpawns" type="int" value="20"/>
    </properties>
   </object>
  </objectgroup>

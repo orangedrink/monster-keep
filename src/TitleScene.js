@@ -19,11 +19,7 @@ var levelScripts = [
 					rightside: true,
 				}, {
 					target: scene.doctor,
-					text: 'I used to have a mansion but it was too much walking. got so bored.',
-					rightside: true,
-				}, {
-					target: scene.doctor,
-					text: 'Anyway, explore by clicking on or touching a destination',
+					text: 'Explore by clicking on or touching a destination',
 					rightside: true,
 				}, {
 					target: scene.doctor,
@@ -49,11 +45,11 @@ var levelScripts = [
 						rightside: false
 					}, {
 						target: scene.doctor,
-						text: 'now that you can get around take a look at your spells',
+						text: 'now that you can get around take a look at your Magic Spells and Monster Cards. ',
 						rightside: true,
 					}, {
 						target: scene.doctor,
-						text: 'click or touch the fireball icon to kill the slimes',
+						text: 'Click fireball icon to kill the slimes with fire or click the card deck to spawn your own monsters!',
 						rightside: false,
 						callback: () => {
 							//scene.doctor.paused=false
@@ -72,7 +68,46 @@ var levelScripts = [
 				})
 			}, 300)
 		}
+		}, {
+		trigger: (scene) => {
+			console.log(scene.spawnCount)
+			return scene.spawnCount==0 && !scene.won;
+		},
+		action: (scene) => {
+			scene.won = true
+			setTimeout(() => {
+				scene.panelDialog = new Dialog(scene, {
+					type: 'balloon', messages: [{
+						target: scene.doctor,
+						text: 'Great!!',
+						rightside: false
+					}, {
+						target: scene.doctor,
+						text: 'now that you can get around take a look at your Magic Spells and Monster Cards. ',
+						rightside: true,
+					}, {
+						target: scene.doctor,
+						text: 'Click fireball icon to kill the slimes with fire or click the card deck to spawn your own monsters!',
+						rightside: false,
+						callback: () => {
+							//scene.doctor.paused=false
+							scene.add.tween({
+								targets: [scene.menu],
+								ease: 'Linear',
+								alpha: 1,
+								duration: 800,
+								onComplete: () => {
+									scene.doctor.paused = false
+								}
+							});
+							//scene.doctor.y-window.innerHeight/2+10
+						}
+					}]
+				})
+			}, 2000)
+		}
 	}
+
 ]
 
 const slimeTween = {
@@ -84,9 +119,9 @@ const slimeTween = {
 
 const titleTileSpawners = []
 const titleEnemyCardDeck = [
-	{ key: 'slime', label: 'Scouting Slimes', count: 5, textureKey: 'slime' },
-	{ key: 'slime', label: 'Toxic Slimes', count: 10, textureKey: 'slime', tint: 0x82ffc7 },
-	{ key: 'slime', label: 'Grand Slimes', count: 15, textureKey: 'slime', tint: 0xffe29a },
+	{ key: 'slime', label: 'Scouting Slimes', count: 10, textureKey: 'slime' },
+	{ key: 'slime', label: 'Toxic Slimes', count: 20, textureKey: 'slime', tint: 0x82ffc7 },
+	{ key: 'slime', label: 'Grand Slimes', count: 50, textureKey: 'slime', tint: 0xffe29a },
 ]
 
 export default class TitleScene extends BaseScene {

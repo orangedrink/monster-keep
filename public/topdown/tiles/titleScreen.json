@@ -95,14 +95,14 @@
                         {
                          "name":"maxSpawns",
                          "type":"int",
-                         "value":100
+                         "value":10
                         }],
                  "rotation":0,
                  "type":"Slime",
                  "visible":true,
                  "width":26.6667,
-                 "x":101.333316666667,
-                 "y":105.999983333333
+                 "x":101.333,
+                 "y":106
                 }, 
                 {
                  "height":10.6667,
@@ -117,14 +117,14 @@
                         {
                          "name":"maxSpawns",
                          "type":"int",
-                         "value":50
+                         "value":10
                         }],
                  "rotation":0,
                  "type":"Slime",
                  "visible":true,
-                 "width":12.0000333333334,
-                 "x":794.999983333333,
-                 "y":47.66665
+                 "width":12,
+                 "x":795,
+                 "y":47.6667
                 }, 
                 {
                  "height":10.6667,
@@ -139,14 +139,14 @@
                         {
                          "name":"maxSpawns",
                          "type":"int",
-                         "value":50
+                         "value":10
                         }],
                  "rotation":0,
                  "type":"Slime",
                  "visible":true,
                  "width":12,
-                 "x":926.333333333333,
-                 "y":45.3333166666667
+                 "x":926.333,
+                 "y":45.3333
                 }, 
                 {
                  "height":10.6667,
@@ -161,14 +161,14 @@
                         {
                          "name":"maxSpawns",
                          "type":"int",
-                         "value":50
+                         "value":10
                         }],
                  "rotation":0,
                  "type":"Slime",
                  "visible":true,
                  "width":12,
-                 "x":220.666666666667,
-                 "y":49.3333166666667
+                 "x":220.667,
+                 "y":49.3333
                 }, 
                 {
                  "height":10.6667,
@@ -183,14 +183,14 @@
                         {
                          "name":"maxSpawns",
                          "type":"int",
-                         "value":50
+                         "value":10
                         }],
                  "rotation":0,
                  "type":"Slime",
                  "visible":true,
                  "width":12,
-                 "x":92.6666666666666,
-                 "y":47.9999833333333
+                 "x":92.6667,
+                 "y":48
                 }, 
                 {
                  "height":10.6667,
@@ -205,14 +205,14 @@
                         {
                          "name":"maxSpawns",
                          "type":"int",
-                         "value":50
+                         "value":10
                         }],
                  "rotation":0,
                  "type":"Slime",
                  "visible":true,
                  "width":12,
                  "x":110,
-                 "y":911.999983333333
+                 "y":912
                 }, 
                 {
                  "height":10.6667,
@@ -227,14 +227,14 @@
                         {
                          "name":"maxSpawns",
                          "type":"int",
-                         "value":50
+                         "value":10
                         }],
                  "rotation":0,
                  "type":"Slime",
                  "visible":true,
                  "width":12,
                  "x":910,
-                 "y":915.999983333333
+                 "y":916
                 }, 
                 {
                  "height":10.6667,
@@ -249,14 +249,14 @@
                         {
                          "name":"maxSpawns",
                          "type":"int",
-                         "value":200
+                         "value":20
                         }],
                  "rotation":0,
                  "type":"Slime",
                  "visible":true,
                  "width":12,
-                 "x":905.333333333333,
-                 "y":110.66665
+                 "x":905.333,
+                 "y":110.667
                 }],
          "opacity":1,
          "type":"objectgroup",
