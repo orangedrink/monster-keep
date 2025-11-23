@@ -56,11 +56,27 @@ export default function createWaterFlowEffect(scene, opts = {}) {
 	const worldX = (startTileX * tileWidth * scale) - 10
 	const worldWidth = resolvedWidth
 
-	const baseRect = scene.add.rectangle(worldX, worldTop, worldWidth, worldHeight, color, 0.48)
-	baseRect.setOrigin(0, 0)
-	baseRect.setDepth(40)
-	baseRect.setBlendMode(Phaser.BlendModes.SCREEN)
-	baseRect.setScrollFactor(1, 1)
+	// Create rounded rectangle graphics for base water
+	const baseGraphics = scene.add.graphics()
+	baseGraphics.fillStyle(color, 0.48)
+	baseGraphics.fillRoundedRect(worldX, worldTop, worldWidth, worldHeight, 8)
+	baseGraphics.setDepth(40)
+	baseGraphics.setBlendMode(Phaser.BlendModes.SCREEN)
+	baseGraphics.setScrollFactor(1, 1)
+
+	// Add top white border line
+	const topBorder = scene.add.graphics()
+	topBorder.lineStyle(1, 0xffffff, 0.4)
+	topBorder.lineBetween(worldX + 8, worldTop, worldX + worldWidth - 8, worldTop)
+	topBorder.setDepth(44)
+	topBorder.setScrollFactor(1, 1)
+
+	// Add bottom white border line
+	const bottomBorder = scene.add.graphics()
+	bottomBorder.lineStyle(1, 0xffffff, 0.4)
+	bottomBorder.lineBetween(worldX + 8, worldTop + worldHeight, worldX + worldWidth - 8, worldTop + worldHeight)
+	bottomBorder.setDepth(44)
+	bottomBorder.setScrollFactor(1, 1)
 
 	const foamRect = scene.add.rectangle(worldX, worldTop, worldWidth, worldHeight, 0xffffff, 0.18)
 	foamRect.setOrigin(0, 0)
@@ -100,7 +116,7 @@ export default function createWaterFlowEffect(scene, opts = {}) {
 			return
 		}
 		const radius = Phaser.Math.FloatBetween(2, 4) * scale
-		const startX = worldX - Phaser.Math.FloatBetween(12, 48) * scale
+		const startX = worldX - Phaser.Math.FloatBetween(4, 8) * scale
 		const startY = worldTop + Phaser.Math.FloatBetween(0, worldHeight)
 		const bubble = scene.add.circle(startX, startY, radius, 0xd6fbff, 0.45)
 		bubble.setDepth(43)
@@ -110,7 +126,7 @@ export default function createWaterFlowEffect(scene, opts = {}) {
 		const duration = Phaser.Math.Between(2200, 3600)
 		scene.tweens.add({
 			targets: bubble,
-			x: worldX + worldWidth + Phaser.Math.FloatBetween(16, 48) * scale,
+			x: worldX + worldWidth + Phaser.Math.FloatBetween(16, 28) * scale,
 			y: startY + Phaser.Math.FloatBetween(-worldHeight * 0.12, worldHeight * 0.12),
 			alpha: { from: 0.6, to: 0 },
 			scale: { from: 1, to: 0.3 },
@@ -135,7 +151,7 @@ export default function createWaterFlowEffect(scene, opts = {}) {
 	const collisionHandle = applyWaterCollision(scene, startTileX, y, widthTiles, heightTiles)
 
 	console.log('[WaterFlowEffect] Created water overlay', {
-		image: baseRect,
+		image: baseGraphics,
 		y,
 		height,
 		x,
@@ -157,7 +173,9 @@ export default function createWaterFlowEffect(scene, opts = {}) {
 			collisionHandle?.restore?.()
 			bubbles.forEach((bubble) => bubble?.destroy())
 			bubbles.length = 0
-			baseRect?.destroy()
+			baseGraphics?.destroy()
+			topBorder?.destroy()
+			bottomBorder?.destroy()
 			foamRect?.destroy()
 			shimmerRect?.destroy()
 		},

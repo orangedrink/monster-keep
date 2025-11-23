@@ -228,11 +228,11 @@ const SPELL_LIBRARY = {
 			const doctor = scene.doctor
 			if (!doctor) return
 			scene.pruneOrbitProjectiles()
-			const orbitCount = 3
+			const orbitCount = 15
 			const damage = 3
 			const radiusBase = (scene.gameScale ?? 1)
 			const desiredRadius = 28 * radiusBase
-			const tangentialSpeed = 340 * radiusBase * Math.random()
+			const tangentialSpeed = 640 * radiusBase * (Math.random()+1)
 			const followSpeed = 460 * radiusBase
 			const velocitySmoothing = 0.16
 			const radiusCorrection = 1.4 * radiusBase
@@ -257,7 +257,7 @@ const SPELL_LIBRARY = {
 					})
 					projectile.create()
 					scene.orbitProjectiles.push(projectile)
-					const phase = (i / Math.max(1, spawnCount)) * Math.PI * 2
+					const phase = (i / Math.max(1, spawnCount)) * Math.PI * 10
 					let lifetime = 0
 					let orbitMode = 'circling'
 					const velocity = new Phaser.Math.Vector2(0, 0)
@@ -334,13 +334,13 @@ const SPELL_LIBRARY = {
 						}
 						projectile.setRotation(Math.atan2(velocity.y, velocity.x))
 						if (scene.time) {
-							scene.createSmokeEffect(projectile.x, projectile.y, 0.45, 520)
+							//scene.createSmokeEffect(projectile.x, projectile.y, 0.45, 520)
 							scene.createSparkEffect(projectile.x, projectile.y, 1.2, 130)
 						}
 						const enemy = scene.findEnemyNearPoint({ x: projectile.x, y: projectile.y }, hitRadius)
 						if (enemy) {
 							scene.destroyEnemiesAt(projectile.x, projectile.y, 26 * scene.gameScale, damage)
-							scene.createSmokeEffect(projectile.x, projectile.y, 1.1, 500)
+							//scene.createSmokeEffect(projectile.x, projectile.y, 1.1, 500)
 							scene.createSparkEffect(projectile.x, projectile.y, 1.4, 700)
 							cleanup()
 							return
@@ -359,7 +359,7 @@ const SPELL_LIBRARY = {
 export default class BaseScene extends Phaser.Scene {
 	gameScale = Math.round(window.innerWidth / 600)
 	gamestate = {}
-	maxOrbitFireballs = 3
+	maxOrbitFireballs = 5
 
 	constructor(key, props) {
 		super(key)
