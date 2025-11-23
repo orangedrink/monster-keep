@@ -836,7 +836,9 @@ export default class BaseScene extends Phaser.Scene {
 		}
 		this.friendlySlimes = []
 		if (this.friendlySlimeGroup) {
-			this.friendlySlimeGroup.clear(true, true)
+			if (this.friendlySlimeGroup.children) {
+				this.friendlySlimeGroup.clear(true, true)
+			}
 		}
 		if (this.friendlyEnemyOverlap) {
 			this.friendlyEnemyOverlap.destroy()
@@ -1258,6 +1260,50 @@ export default class BaseScene extends Phaser.Scene {
 		)
 		this.setupSlimeMergeHandling()
 		this.setupFriendlySlimeMergeHandling()
+		const objectLayer = this.topdown.map.getObjectLayer('objects')
+		if (objectLayer && Array.isArray(objectLayer.objects)) {
+			objectLayer.objects.filter((obj) => obj.type === 'Door').forEach((obj) => {
+				const doorX = (obj.x + (obj.width || 0) / 2) * this.gameScale
+				const doorY = (obj.y + (obj.height || 0) / 2) * this.gameScale
+				const doorW = (obj.width || 16) * this.gameScale
+				const doorH = (obj.height || 16) * this.gameScale
+				const targetSceneKey = this.getPropertyValue(obj.properties, 'scene',
+					this.getPropertyValue(obj.properties, 'targetScene', null))
+				if (!targetSceneKey) return
+				const fadeDuration = this.getPropertyValue(obj.properties, 'fadeDuration', 1000)
+				console.log(doorX, doorY, doorW, doorH, targetSceneKey)
+				const doorZone = this.add.zone(doorX, doorY, doorW, doorH)
+				/* const doorOutline = this.add.rectangle(doorX, doorY, doorW, doorH)
+				doorOutline.setStrokeStyle(2, 0x00ff00, 1)
+				doorOutline.setOrigin(0.5) */
+				doorZone.setOrigin(0.5)
+				this.physics.world.enable(doorZone)
+				doorZone.body.setAllowGravity(false)
+				doorZone.body.setImmovable(true)
+				doorZone.setData('targetScene', targetSceneKey)
+				doorZone.setData('fadeDuration', fadeDuration)
+				doorZone.setData('used', false)
+				if (!this.doorZones) this.doorZones = []
+				this.doorZones.push(doorZone)
+				this.physics.add.overlap(this.doctor, doorZone, (doctor, zone) => {
+					if (!zone || zone.getData('used')) return
+					const key = zone.getData('targetScene')
+					if (!key) return
+					zone.setData('used', true)
+					this.clearTargetSelection()
+					this.clearSpellSelection()
+					const cam = this.cameras?.main
+					if (cam) {
+						cam.once('camerafadeoutcomplete', () => {
+							this.scene.start(key)
+						})
+						cam.fadeOut(zone.getData('fadeDuration'), 0, 0, 0)
+					} else {
+						this.scene.start(key)
+					}
+				}, null, this)
+			})
+		}
 		const entityLayer = this.topdown.map.getObjectLayer('enemies')
 		if (entityLayer && Array.isArray(entityLayer.objects)) {
 			console.log('[BaseScene] Loaded entity objects:', entityLayer.objects)
