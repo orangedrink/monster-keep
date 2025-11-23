@@ -227,7 +227,6 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.savePrompt = null
 		this.loadPrompt = null
 		this.typingSoundKey = 'typing'
-		console.log(this.typingSoundKey);
 		if (!this.sound.get(this.typingSoundKey)) {
 			this.sound.add(this.typingSoundKey, { volume: 0.8 })
 		}
@@ -978,7 +977,6 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	openSavePrompt(defaultName) {
 		if (this.savePrompt) return
-		console.log('[SavePrompt] opening', defaultName, 'existing?', !!this.savePrompt)
 		if (this.cursorBlock) {
 			this.cursorBlock.setVisible(false)
 		}
@@ -1016,22 +1014,12 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			callback: () => {
 				if (!this.savePrompt) {
 					blinkEvent.remove()
-					console.log('Saveprompt blink timer removed')
 					return
 				}
 				const cursor = this.ensureSavePromptCursor()
 				if (!cursor) return
 				this.savePrompt.cursorVisible = !this.savePrompt.cursorVisible
 				cursor.setVisible(this.savePrompt.cursorVisible)
-				console.log('[SavePrompt] cursor blink', {
-					visible: this.savePrompt.cursorVisible,
-					name: this.savePrompt.currentName,
-					cursorDepth: typeof cursor.depth !== 'undefined' ? cursor.depth : null,
-					containerDepth: this.savePrompt.container?.depth ?? null,
-					cursorX: cursor.x,
-					cursorY: cursor.y,
-					cursorBlock: cursorBlock,
-				})
 			},
 		})
 		this.savePrompt = {
@@ -1043,7 +1031,6 @@ export default class BasicConsoleScene extends Phaser.Scene {
 			blinkEvent,
 		}
 		//this.updateSavePromptCursor()
-		console.log('[SavePrompt] savePrompt set', !!this.savePrompt)
 
 		if (this.input.keyboard) {
 			this.input.keyboard.on('keydown', this.handleSavePromptKey, this)
@@ -1052,7 +1039,6 @@ export default class BasicConsoleScene extends Phaser.Scene {
 
 	closeSavePrompt() {
 		if (!this.savePrompt) return
-		console.log('[SavePrompt] closing')
 		this.savePrompt.container.destroy(true)
 		if (this.savePrompt.blinkEvent) {
 			this.savePrompt.blinkEvent.remove()
@@ -1227,7 +1213,6 @@ export default class BasicConsoleScene extends Phaser.Scene {
 	}
 
 	playTypingSound() {
-		console.log(this.typingSoundKey)
 		if (!this.typingSoundKey) return
 		const base = this.sound.get(this.typingSoundKey) || this.sound.add(this.typingSoundKey, { volume: 0.8 })
 		if (!base) return
@@ -1758,6 +1743,22 @@ export default class BasicConsoleScene extends Phaser.Scene {
 		this.outputText.setText(output)
 		if (output === this.targetBits) {
 			this.updateStatus(`Success! You generated the required ${BIT_COUNT}-bit output.`, 0x00ff9c)
+			setTimeout(() => {
+				const titleSceneKeys = ['TitleScene','title','title-scene','titleScene']
+				let started = false
+				for (const key of titleSceneKeys) {
+					try {
+						if (this.scene.get(key)) {
+							this.scene.start(key, { from: 'basic-console', program: this.program, target: this.targetBits })
+							started = true
+							break
+						}
+					} catch {}
+				}
+				if (!started) {
+					console.warn('Title scene not found. Add it to the game config.')
+				}
+			}, 1500)
 		} else {
 			this.updateStatus(`Output mismatch. Goal: ${this.targetBits}`, 0xffae00)
 		}

@@ -1,7 +1,10 @@
 import BaseScene from './BaseScene.js'
 import Dialog from './ui/Dialog.js'
 import Slime from './topdown/sprites/Slime.js'
-var levelScripts = [
+import createWaterFlowEffect from './effects/createWaterFlowEffect.js';
+
+const DRAINS_CLEARED_KEY = 'drainsCleared';
+var eventScripts = [
 	{
 		trigger: (scene) => {
 			return !scene.triggers.createdRun
@@ -68,38 +71,30 @@ var levelScripts = [
 				})
 			}, 300)
 		}
-		}, {
+	}, {
 		trigger: (scene) => {
-			console.log(scene.spawnCount)
-			return scene.spawnCount==0 && !scene.won;
+			return scene.spawnCount == 0 && !scene.getGamestateValue(DRAINS_CLEARED_KEY, false);
 		},
 		action: (scene) => {
-			scene.won = true
+			scene.setGamestateValue(DRAINS_CLEARED_KEY, true)
 			setTimeout(() => {
 				scene.panelDialog = new Dialog(scene, {
 					type: 'balloon', messages: [{
 						target: scene.doctor,
-						text: 'Great!!',
+						text: 'Awesome!',
 						rightside: false
 					}, {
 						target: scene.doctor,
-						text: 'now that you can get around take a look at your Magic Spells and Monster Cards. ',
-						rightside: true,
-					}, {
-						target: scene.doctor,
-						text: 'Click fireball icon to kill the slimes with fire or click the card deck to spawn your own monsters!',
+						text: 'You cleared all the drains. Maybe the flooding will stop now..',
 						rightside: false,
 						callback: () => {
-							//scene.doctor.paused=false
-							scene.add.tween({
-								targets: [scene.menu],
-								ease: 'Linear',
-								alpha: 1,
-								duration: 800,
-								onComplete: () => {
-									scene.doctor.paused = false
-								}
-							});
+							scene.doctor.paused = false
+							/* 							scene.doctor.paused = true;
+														scene.cameras.main.fadeOut(1000, 0, 0, 0, () => {
+															setTimeout(() => {
+																scene.scene.start('basic-console');
+															}, 1000);
+														}); */
 							//scene.doctor.y-window.innerHeight/2+10
 						}
 					}]
@@ -111,11 +106,11 @@ var levelScripts = [
 ]
 
 const slimeTween = {
-		alpha: { from: 0, to: 1 },
-		scale: { from: 0.05, to: 2 },
-		duration: 180,
-		ease: 'Quad.easeOut',
-	};
+	alpha: { from: 0, to: 1 },
+	scale: { from: 0.05, to: 2 },
+	duration: 180,
+	ease: 'Quad.easeOut',
+};
 
 const titleTileSpawners = []
 const titleEnemyCardDeck = [
@@ -128,9 +123,18 @@ export default class TitleScene extends BaseScene {
 	constructor() {
 		super('title', {
 			levelData: 'topdown/tiles/titleScreen.json',
-			levelScripts: levelScripts,
+			levelScripts: eventScripts,
 			tileSpawners: titleTileSpawners,
 			enemyCards: titleEnemyCardDeck,
 		})
 	}
+
+	init(data = {}) {
+		super.init?.(data)
+		const storedWon = !!this.getGamestateValue(DRAINS_CLEARED_KEY, false)
+		this.won = storedWon
+
+	}
+
+
 }

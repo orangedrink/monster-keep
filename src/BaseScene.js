@@ -176,31 +176,33 @@ const createProjectileSpellDefinition = ({
 	},
 })
 
+const GAMESTATE_STORAGE_KEY = 'gamestate'
+
 const SPELL_LIBRARY = {
-fireball: createProjectileSpellDefinition({
-	key: 'fireball',
-	label: 'Fireball',
-	iconColor: 0xff6b18,
-	spriteClass: FireballSprite,
-	projectileScale: 0.65,
-	cooldownMs: 230,
-	volleyCount: 1,
-	spawnSparks: true,
-	spawnShadowSparks: false,
-	range: 8580,
-}),
-shadowbolt: createProjectileSpellDefinition({
-	key: 'shadowbolt',
-	label: 'Shadowbolt',
-	iconColor: 0x8c76ff,
-	spriteClass: ShadowboltSprite,
-	projectileScale: 0.6,
-	cooldownMs: 300,
-	volleyCount: 2,
-	spawnSparks: false,
-	spawnShadowSparks: true,
-	range: 320,
-}),
+	fireball: createProjectileSpellDefinition({
+		key: 'fireball',
+		label: 'Fireball',
+		iconColor: 0xff6b18,
+		spriteClass: FireballSprite,
+		projectileScale: 0.65,
+		cooldownMs: 230,
+		volleyCount: 1,
+		spawnSparks: true,
+		spawnShadowSparks: false,
+		range: 8580,
+	}),
+	shadowbolt: createProjectileSpellDefinition({
+		key: 'shadowbolt',
+		label: 'Shadowbolt',
+		iconColor: 0x8c76ff,
+		spriteClass: ShadowboltSprite,
+		projectileScale: 0.6,
+		cooldownMs: 300,
+		volleyCount: 2,
+		spawnSparks: false,
+		spawnShadowSparks: true,
+		range: 320,
+	}),
 	fireball2: {
 		key: 'fireball2',
 		label: 'Firewisp',
@@ -230,129 +232,129 @@ shadowbolt: createProjectileSpellDefinition({
 			const damage = 3
 			const radiusBase = (scene.gameScale ?? 1)
 			const desiredRadius = 28 * radiusBase
-				const tangentialSpeed = 340 * radiusBase
-				const followSpeed = 460 * radiusBase
-				const velocitySmoothing = 0.16
+			const tangentialSpeed = 340 * radiusBase * Math.random()
+			const followSpeed = 460 * radiusBase
+			const velocitySmoothing = 0.16
 			const radiusCorrection = 1.4 * radiusBase
-				const followThreshold = desiredRadius * 1.8
-				const reengageThreshold = desiredRadius * 1.1
-				const maxDistanceFromDoctor = desiredRadius * 3
+			const followThreshold = desiredRadius * 1.8
+			const reengageThreshold = desiredRadius * 1.1
+			const maxDistanceFromDoctor = desiredRadius * 3
 			const maxLifetime = 18000
 			const hitRadius = 20 * (scene.gameScale ?? 1)
 			const availableSlots = Math.max(0, scene.maxOrbitFireballs - scene.orbitProjectiles.length)
 			if (!availableSlots) return
 			const spawnCount = Math.min(orbitCount, availableSlots)
-				for (let i = 0; i < spawnCount; i++) {
-					scene.time.delayedCall(i * 140, () => {
-						if (!doctor.active) return
-						scene.pruneOrbitProjectiles()
-						if (scene.orbitProjectiles.length >= scene.maxOrbitFireballs) return
-						const projectile = new FireballSprite(scene, {
-							x: doctor.x,
-							y: doctor.y,
-							scale: 0.55 * (scene.gameScale ?? 1),
-							depth: 192,
-						})
-						projectile.create()
-						scene.orbitProjectiles.push(projectile)
-						const phase = (i / Math.max(1, spawnCount)) * Math.PI * 2
-						let lifetime = 0
-							let orbitMode = 'circling'
-							const velocity = new Phaser.Math.Vector2(0, 0)
-						function cleanup(playEffect = true) {
-							scene.events.off(Phaser.Scenes.Events.UPDATE, updateHandler)
-							if (projectile.active) {
-								if (playEffect) {
-									createFireballEffect(scene, { x: projectile.x, y: projectile.y })
-									createImpactLight(scene, projectile.x, projectile.y, scene.spawnSparks ? 0x5ff1a1 : null)
-								}
-								projectile.destroy()
+			for (let i = 0; i < spawnCount; i++) {
+				scene.time.delayedCall(i * 140, () => {
+					if (!doctor.active) return
+					scene.pruneOrbitProjectiles()
+					if (scene.orbitProjectiles.length >= scene.maxOrbitFireballs) return
+					const projectile = new FireballSprite(scene, {
+						x: doctor.x,
+						y: doctor.y,
+						scale: 0.55 * (scene.gameScale ?? 1),
+						depth: 192,
+					})
+					projectile.create()
+					scene.orbitProjectiles.push(projectile)
+					const phase = (i / Math.max(1, spawnCount)) * Math.PI * 2
+					let lifetime = 0
+					let orbitMode = 'circling'
+					const velocity = new Phaser.Math.Vector2(0, 0)
+					function cleanup(playEffect = true) {
+						scene.events.off(Phaser.Scenes.Events.UPDATE, updateHandler)
+						if (projectile.active) {
+							if (playEffect) {
+								createFireballEffect(scene, { x: projectile.x, y: projectile.y })
+								createImpactLight(scene, projectile.x, projectile.y, scene.spawnSparks ? 0x5ff1a1 : null)
 							}
-							scene.pruneOrbitProjectiles()
+							projectile.destroy()
 						}
-						function updateHandler(time, delta) {
-							if (!projectile.active || !doctor.active) {
-								cleanup(false)
-								return
-							}
-							const dt = delta / 1000
-							lifetime += delta
-							let dx = projectile.x - doctor.x
-							let dy = projectile.y - doctor.y
-							if (dx === 0 && dy === 0) {
-								dx = Math.cos(phase) * desiredRadius
-								dy = Math.sin(phase) * desiredRadius
-							}
-							const dist = Math.hypot(dx, dy) || 1
-							const normX = dx / dist
-							const normY = dy / dist
-							const lateralX = -normY
-							const lateralY = normX
-							const doctorMoving = !!doctor.moving
-							if (doctorMoving) {
-								if (orbitMode === 'circling' && dist > followThreshold) {
-									orbitMode = 'following'
-								} else if (orbitMode === 'following' && dist <= reengageThreshold) {
-									orbitMode = 'circling'
-								}
-							} else if (orbitMode !== 'circling') {
+						scene.pruneOrbitProjectiles()
+					}
+					function updateHandler(time, delta) {
+						if (!projectile.active || !doctor.active) {
+							cleanup(false)
+							return
+						}
+						const dt = delta / 1000
+						lifetime += delta
+						let dx = projectile.x - doctor.x
+						let dy = projectile.y - doctor.y
+						if (dx === 0 && dy === 0) {
+							dx = Math.cos(phase) * desiredRadius
+							dy = Math.sin(phase) * desiredRadius
+						}
+						const dist = Math.hypot(dx, dy) || 1
+						const normX = dx / dist
+						const normY = dy / dist
+						const lateralX = -normY
+						const lateralY = normX
+						const doctorMoving = !!doctor.moving
+						if (doctorMoving) {
+							if (orbitMode === 'circling' && dist > followThreshold) {
+								orbitMode = 'following'
+							} else if (orbitMode === 'following' && dist <= reengageThreshold) {
 								orbitMode = 'circling'
 							}
-							let desiredVx
-							let desiredVy
-							if (orbitMode === 'following') {
-								const dirX = -normX
-								const dirY = -normY
-								desiredVx = dirX * followSpeed
-								desiredVy = dirY * followSpeed
-							} else {
-								const radialAdjust = Phaser.Math.Clamp((desiredRadius - dist) / desiredRadius, -1, 1)
-								desiredVx = lateralX * tangentialSpeed + normX * radiusCorrection * radialAdjust
-								desiredVy = lateralY * tangentialSpeed + normY * radiusCorrection * radialAdjust
-							}
-							const smoothingFactor = Phaser.Math.Clamp(velocitySmoothing * (delta / 16.6667), 0, 1)
-							velocity.x = Phaser.Math.Linear(velocity.x, desiredVx, smoothingFactor)
-							velocity.y = Phaser.Math.Linear(velocity.y, desiredVy, smoothingFactor)
-							projectile.x += velocity.x * dt
-							projectile.y += velocity.y * dt
-							let postDx = projectile.x - doctor.x
-							let postDy = projectile.y - doctor.y
-							const postDist = Math.hypot(postDx, postDy)
-							if (postDist > maxDistanceFromDoctor) {
-								const outwardX = postDx / postDist
-								const outwardY = postDy / postDist
-								projectile.x = doctor.x + outwardX * maxDistanceFromDoctor
-								projectile.y = doctor.y + outwardY * maxDistanceFromDoctor
-								const inwardX = -outwardX
-								const inwardY = -outwardY
-								velocity.set(inwardX * followSpeed, inwardY * followSpeed)
-								orbitMode = 'following'
-								postDx = projectile.x - doctor.x
-								postDy = projectile.y - doctor.y
-							}
-							projectile.setRotation(Math.atan2(velocity.y, velocity.x))
-							if (scene.time) {
-								scene.createSmokeEffect(projectile.x, projectile.y, 0.45, 520)
-								scene.createSparkEffect(projectile.x, projectile.y, 1.2, 130)
-							}
-							const enemy = scene.findEnemyNearPoint({ x: projectile.x, y: projectile.y }, hitRadius)
-							if (enemy) {
-								scene.destroyEnemiesAt(projectile.x, projectile.y, 26 * scene.gameScale, damage)
-								scene.createSmokeEffect(projectile.x, projectile.y, 1.1, 500)
-								scene.createSparkEffect(projectile.x, projectile.y, 1.4, 700)
-								cleanup()
-								return
-							}
-							if (lifetime >= maxLifetime) {
-								cleanup()
-							}
+						} else if (orbitMode !== 'circling') {
+							orbitMode = 'circling'
 						}
-						scene.events.on(Phaser.Scenes.Events.UPDATE, updateHandler)
-					})
-				}
-			},
+						let desiredVx
+						let desiredVy
+						if (orbitMode === 'following') {
+							const dirX = -normX
+							const dirY = -normY
+							desiredVx = dirX * followSpeed
+							desiredVy = dirY * followSpeed
+						} else {
+							const radialAdjust = Phaser.Math.Clamp((desiredRadius - dist) / desiredRadius, -1, 1)
+							desiredVx = lateralX * tangentialSpeed + normX * radiusCorrection * radialAdjust
+							desiredVy = lateralY * tangentialSpeed + normY * radiusCorrection * radialAdjust
+						}
+						const smoothingFactor = Phaser.Math.Clamp(velocitySmoothing * (delta / 16.6667), 0, 1)
+						velocity.x = Phaser.Math.Linear(velocity.x, desiredVx, smoothingFactor)
+						velocity.y = Phaser.Math.Linear(velocity.y, desiredVy, smoothingFactor)
+						projectile.x += velocity.x * dt
+						projectile.y += velocity.y * dt
+						let postDx = projectile.x - doctor.x
+						let postDy = projectile.y - doctor.y
+						const postDist = Math.hypot(postDx, postDy)
+						if (postDist > maxDistanceFromDoctor) {
+							const outwardX = postDx / postDist
+							const outwardY = postDy / postDist
+							projectile.x = doctor.x + outwardX * maxDistanceFromDoctor
+							projectile.y = doctor.y + outwardY * maxDistanceFromDoctor
+							const inwardX = -outwardX
+							const inwardY = -outwardY
+							velocity.set(inwardX * followSpeed, inwardY * followSpeed)
+							orbitMode = 'following'
+							postDx = projectile.x - doctor.x
+							postDy = projectile.y - doctor.y
+						}
+						projectile.setRotation(Math.atan2(velocity.y, velocity.x))
+						if (scene.time) {
+							scene.createSmokeEffect(projectile.x, projectile.y, 0.45, 520)
+							scene.createSparkEffect(projectile.x, projectile.y, 1.2, 130)
+						}
+						const enemy = scene.findEnemyNearPoint({ x: projectile.x, y: projectile.y }, hitRadius)
+						if (enemy) {
+							scene.destroyEnemiesAt(projectile.x, projectile.y, 26 * scene.gameScale, damage)
+							scene.createSmokeEffect(projectile.x, projectile.y, 1.1, 500)
+							scene.createSparkEffect(projectile.x, projectile.y, 1.4, 700)
+							cleanup()
+							return
+						}
+						if (lifetime >= maxLifetime) {
+							cleanup()
+						}
+					}
+					scene.events.on(Phaser.Scenes.Events.UPDATE, updateHandler)
+				})
+			}
 		},
-	}
+	},
+}
 
 export default class BaseScene extends Phaser.Scene {
 	gameScale = Math.round(window.innerWidth / 600)
@@ -361,9 +363,11 @@ export default class BaseScene extends Phaser.Scene {
 
 	constructor(key, props) {
 		super(key)
+		this.gamestate = this.loadStoredGamestate()
 		this.spriteData = props.spriteData || TITLE_SPRITE_DATA;
 		this.levelData = props.levelData;
 		this.levelScripts = props.levelScripts;
+		this.objectScripts = props.objectScripts;
 		this.triggers = {};
 		this.spellKeys = props.spells || ['fireball', 'shadowbolt', 'fireball2'];
 		this.spellDefinitions = [];
@@ -397,6 +401,22 @@ export default class BaseScene extends Phaser.Scene {
 		this.friendlyEnemyOverlap = null
 		this.activeFriendlySpawners = []
 		this.spawnCount = 0
+		this.totalSpawnCount = 0
+		this.uncompletedSpawns = 0
+		this.completedSpawns = 0
+		this.activeSpawns = 0
+		this.pendingSpawnPoint = null
+		this.lastPlayerCoordLogTime = 0
+		this.lastLoggedPlayerCoords = { x: null, y: null }
+	}
+
+	init(data = {}) {
+		if (typeof super.init === 'function') {
+			super.init(data)
+		}
+		this.pendingSpawnPoint = data?.spawnPoint ?? null
+		this.spawnCount = 0
+		this.won = false
 		this.totalSpawnCount = 0
 		this.uncompletedSpawns = 0
 		this.completedSpawns = 0
@@ -467,7 +487,54 @@ export default class BaseScene extends Phaser.Scene {
 	}
 
 	saveGame(key, val) {
-		this.gamestate[key] = val
+		this.setGamestateValue(key, val)
+	}
+
+	loadStoredGamestate() {
+		if (typeof window === 'undefined' || !window.localStorage) {
+			return this.gamestate && typeof this.gamestate === 'object' ? { ...this.gamestate } : {}
+		}
+		try {
+			const raw = window.localStorage.getItem(GAMESTATE_STORAGE_KEY)
+			if (!raw) return {}
+			const parsed = JSON.parse(raw)
+			if (parsed && typeof parsed === 'object') {
+				return parsed
+			}
+		} catch (err) {
+			console.warn('[BaseScene] Failed to load gamestate:', err)
+		}
+		return {}
+	}
+
+	persistGamestate() {
+		if (typeof window === 'undefined' || !window.localStorage) return
+		try {
+			const serialized = JSON.stringify(this.gamestate || {})
+			window.localStorage.setItem(GAMESTATE_STORAGE_KEY, serialized)
+		} catch (err) {
+			console.warn('[BaseScene] Failed to persist gamestate:', err)
+		}
+	}
+
+	setGamestateValue(key, value) {
+		if (!key) return
+		if (!this.gamestate || typeof this.gamestate !== 'object') {
+			this.gamestate = {}
+		}
+		this.gamestate[key] = value
+		console.log('[BaseScene] Gamestate updated:', this.gamestate)
+		this.persistGamestate()
+	}
+
+	getGamestateValue(key, defaultValue = null) {
+		if (!this.gamestate || typeof this.gamestate !== 'object') {
+			return defaultValue
+		}
+		if (Object.prototype.hasOwnProperty.call(this.gamestate, key)) {
+			return this.gamestate[key]
+		}
+		return defaultValue
 	}
 
 	getPropertyValue(properties, name, defaultValue) {
@@ -477,6 +544,17 @@ export default class BaseScene extends Phaser.Scene {
 	}
 
 	preload() {
+		// Load gamestate from localStorage
+		try {
+			const savedState = localStorage.getItem('gamestate')
+			if (savedState) {
+				this.gamestate = JSON.parse(savedState)
+				console.log('[BaseScene] Loaded gamestate from localStorage:', this.gamestate)
+			}
+		} catch (error) {
+			console.warn('[BaseScene] Failed to load gamestate from localStorage:', error)
+		}
+		
 		this.preloadSprites()
 		this.loadCommonAssets()
 		this.load.spritesheet(FIREBALL_PROJECTILE_KEY, 'condo/spells/fireball.png', {
@@ -525,10 +603,16 @@ export default class BaseScene extends Phaser.Scene {
 	}
 
 	loadCommonAssets() {
+		// Remove cached tilemap to ensure each scene loads its own level data
+		if (this.cache.tilemap.exists('tilemap')) {
+			this.cache.tilemap.remove('tilemap')
+		}
+		this.triggers.createdWater = false;
 		this.load.image('tileset', 'topdown/tiles/tileset.png')
 		this.load.image('screen', 'topdown/screen.png')
 		this.load.image('menu', 'topdown/menubar.png')
-		this.load.tilemapTiledJSON('tilemap', this.levelData)
+		this.load.tilemapTiledJSON('tilemap', this.levelData,)
+		console.log('[BaseScene] Level data loaded:', this.levelData)
 
 	}
 	processScripts() {
@@ -596,7 +680,6 @@ export default class BaseScene extends Phaser.Scene {
 		const totalFrames = 3
 		const totalDuration = frameDurationMs * totalFrames
 		doctor.playAnim({ key: castAnimKey })
-		console.log('playDoctorCastAnimation', castAnimKey)
 /* 		if (this.time) {
 			this.time.delayedCall(totalDuration, () => {
 				if (!doctor.active) return
@@ -1039,7 +1122,6 @@ export default class BaseScene extends Phaser.Scene {
 						const enemy = scene.spawnEnemySprite(spriteClass, position.x, position.y, spawnConfig)
 						if (enemy && spawnTween) {
 							scene.applySpawnTween(enemy, spawnTween)
-							console.log("tween", spawnTween)
 						}
 					},
 				}
@@ -1209,6 +1291,106 @@ export default class BaseScene extends Phaser.Scene {
 		}
 	}
 
+	getMapMetrics() {
+		const map = this.topdown?.map
+		if (!map) return null
+		const tileWidth = map.tileWidth ?? 16
+		const tileHeight = map.tileHeight ?? 16
+		const scale = this.gameScale ?? 1
+		const tileCountX = Number.isFinite(map.width)
+			? map.width
+			: (map.widthInPixels && tileWidth ? map.widthInPixels / tileWidth : null)
+		const tileCountY = Number.isFinite(map.height)
+			? map.height
+			: (map.heightInPixels && tileHeight ? map.heightInPixels / tileHeight : null)
+		return {
+			map,
+			tileWidth,
+			tileHeight,
+			scale,
+			tileCountX,
+			tileCountY,
+		}
+	}
+
+	convertMapCoordinate(value, tileSize, tileCount, scale, options = {}) {
+		const { forceTile = false, extraHalfTile = false } = options
+		if (!Number.isFinite(value)) return null
+		const finalTileSize = Number.isFinite(tileSize) ? tileSize : 16
+		const finalScale = Number.isFinite(scale) ? scale : 1
+		const shouldTreatAsTile = forceTile || (Number.isFinite(tileCount) && value >= 0 && value <= tileCount + 1)
+		const tileOffset = (shouldTreatAsTile ? 0.5 : 0) + (extraHalfTile ? 0.5 : 0)
+		if (shouldTreatAsTile || extraHalfTile) {
+			return ((value + tileOffset) * finalTileSize) * finalScale
+		}
+		return value * finalScale
+	}
+
+	convertMapPointToWorld(point, options = {}) {
+		if (!point) return null
+		const metrics = this.getMapMetrics()
+		if (!metrics) return null
+		const worldX = this.convertMapCoordinate(point.x, metrics.tileWidth, metrics.tileCountX, metrics.scale, options)
+		const worldY = this.convertMapCoordinate(point.y, metrics.tileHeight, metrics.tileCountY, metrics.scale, options)
+		if (!Number.isFinite(worldX) || !Number.isFinite(worldY)) return null
+		return { x: worldX, y: worldY }
+	}
+
+	resolveSpawnPointFromData(spawnPoint) {
+		if (!spawnPoint) return null
+		return this.convertMapPointToWorld(spawnPoint, { forceTile: true, extraHalfTile: true })
+	}
+
+	getDoorSpawnPoint() {
+		const map = this.topdown?.map
+		if (!map?.getObjectLayer) return null
+		const layer = map.getObjectLayer('objects')
+		const doorObjects = Array.isArray(layer?.objects)
+			? layer.objects.filter((obj) => obj && obj.type === 'Door' && obj.properties)
+			: []
+		if (!doorObjects.length) return null
+		const resolveNumeric = (obj, key) => {
+			const val = this.getPropertyValue(obj.properties, key, null)
+			if (typeof val === 'number') return val
+			if (typeof val === 'string') {
+				const parsed = Number(val)
+				return Number.isFinite(parsed) ? parsed : null
+			}
+			return null
+		}
+		const hasTargetCoords = (obj) => {
+			const tx = resolveNumeric(obj, 'targetX')
+			const ty = resolveNumeric(obj, 'targetY')
+			return Number.isFinite(tx) && Number.isFinite(ty)
+		}
+		const currentSceneKey = this.scene?.key ?? this.sys?.settings?.key ?? null
+		let selectedDoor = null
+		if (currentSceneKey) {
+			selectedDoor = doorObjects.find((obj) => {
+				if (!hasTargetCoords(obj)) return false
+				const targetSceneKey = this.getPropertyValue(obj.properties, 'scene',
+					this.getPropertyValue(obj.properties, 'targetScene', null))
+				return targetSceneKey === currentSceneKey
+			}) || null
+		}
+		if (!selectedDoor) {
+			selectedDoor = doorObjects.find((obj) => hasTargetCoords(obj)) || null
+		}
+		if (!selectedDoor) return null
+		const targetX = resolveNumeric(selectedDoor, 'targetX')
+		const targetY = resolveNumeric(selectedDoor, 'targetY')
+		if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) return null
+		return this.convertMapPointToWorld({ x: targetX, y: targetY }, { forceTile: true, extraHalfTile: true })
+	}
+
+	resolveInitialSpawnPoint(centerX, centerY) {
+		const fromData = this.resolveSpawnPointFromData(this.pendingSpawnPoint)
+		if (fromData) return fromData
+		const fromDoor = this.getDoorSpawnPoint()
+		if (fromDoor) return fromDoor
+		return { x: centerX, y: centerY }
+	}
+
 	disposeEnemySpawners() {
 		if (!this.enemySpawners?.length) return
 		this.enemySpawners.forEach((spawner) => {
@@ -1218,6 +1400,8 @@ export default class BaseScene extends Phaser.Scene {
 	}
 
 	create() {
+		;
+		console.log(this.scene.key, ' Scene Create');
 		this.panelDialog = null;
 
 		this.cameras.main.fadeIn(2000, 0, 0, 0)
@@ -1239,7 +1423,9 @@ export default class BaseScene extends Phaser.Scene {
 
 		const centerX = (this.topdown.map.widthInPixels * this.gameScale) / 2
 		const centerY = (this.topdown.map.heightInPixels * this.gameScale) / 2
-		this.doctor = new Doctor(this, { scene: this, x: centerX, y: centerY })
+		const spawnPoint = this.resolveInitialSpawnPoint(centerX, centerY)
+		this.pendingSpawnPoint = null
+		this.doctor = new Doctor(this, { scene: this, x: spawnPoint.x, y: spawnPoint.y })
 		this.doctor.create()
 		this.doctorDead = false
 		this.doctorDeathHandled = false
@@ -1262,6 +1448,35 @@ export default class BaseScene extends Phaser.Scene {
 		this.setupFriendlySlimeMergeHandling()
 		const objectLayer = this.topdown.map.getObjectLayer('objects')
 		if (objectLayer && Array.isArray(objectLayer.objects)) {
+			// Log scriptable objects
+			objectLayer.objects.filter((obj) => obj.type === 'scriptable').forEach((obj) => {
+				console.log('[BaseScene] Found scriptable object:', obj.name)
+				
+				// Create a zone for the scriptable object
+				const scriptX = (obj.x + (obj.width || 0) / 2) * this.gameScale
+				const scriptY = (obj.y + (obj.height || 0) / 2) * this.gameScale
+				const scriptW = (obj.width || 16) * this.gameScale
+				const scriptH = (obj.height || 16) * this.gameScale
+				
+				const scriptZone = this.add.zone(scriptX, scriptY, scriptW, scriptH)
+				scriptZone.setOrigin(0.5)
+				this.physics.world.enable(scriptZone)
+				scriptZone.body.setAllowGravity(false)
+				scriptZone.body.setImmovable(true)
+				scriptZone.setData('scriptName', obj.name)
+				scriptZone.setData('used', false)
+				
+				// Set up overlap detection with player
+				this.physics.add.overlap(this.doctor, scriptZone, (doctor, zone) => {
+					if (!zone || zone.getData('used')) return
+					const scriptName = zone.getData('scriptName')
+					if (!scriptName || !this.objectScripts[scriptName]) return
+					
+					zone.setData('used', true)
+					this.objectScripts[scriptName](this)
+				}, null, this)
+			})
+			
 			objectLayer.objects.filter((obj) => obj.type === 'Door').forEach((obj) => {
 				const doorX = (obj.x + (obj.width || 0) / 2) * this.gameScale
 				const doorY = (obj.y + (obj.height || 0) / 2) * this.gameScale
@@ -1270,8 +1485,9 @@ export default class BaseScene extends Phaser.Scene {
 				const targetSceneKey = this.getPropertyValue(obj.properties, 'scene',
 					this.getPropertyValue(obj.properties, 'targetScene', null))
 				if (!targetSceneKey) return
+				const targetX = this.getPropertyValue(obj.properties, 'targetX', null)
+				const targetY = this.getPropertyValue(obj.properties, 'targetY', null)
 				const fadeDuration = this.getPropertyValue(obj.properties, 'fadeDuration', 1000)
-				console.log(doorX, doorY, doorW, doorH, targetSceneKey)
 				const doorZone = this.add.zone(doorX, doorY, doorW, doorH)
 				/* const doorOutline = this.add.rectangle(doorX, doorY, doorW, doorH)
 				doorOutline.setStrokeStyle(2, 0x00ff00, 1)
@@ -1283,6 +1499,10 @@ export default class BaseScene extends Phaser.Scene {
 				doorZone.setData('targetScene', targetSceneKey)
 				doorZone.setData('fadeDuration', fadeDuration)
 				doorZone.setData('used', false)
+				if (Number.isFinite(targetX) && Number.isFinite(targetY)) {
+					doorZone.setData('targetX', Number(targetX))
+					doorZone.setData('targetY', Number(targetY))
+				}
 				if (!this.doorZones) this.doorZones = []
 				this.doorZones.push(doorZone)
 				this.physics.add.overlap(this.doctor, doorZone, (doctor, zone) => {
@@ -1293,20 +1513,35 @@ export default class BaseScene extends Phaser.Scene {
 					this.clearTargetSelection()
 					this.clearSpellSelection()
 					const cam = this.cameras?.main
+					const spawnPointData = (() => {
+						const spawnX = zone.getData('targetX')
+						const spawnY = zone.getData('targetY')
+						if (Number.isFinite(spawnX) && Number.isFinite(spawnY)) {
+							return { x: spawnX, y: spawnY }
+						}
+						return null
+					})()
+					const transitionData = spawnPointData ? { spawnPoint: spawnPointData } : undefined
+					const startScene = () => {
+						if (transitionData) {
+							this.scene.start(key, transitionData)
+						} else {
+							this.scene.start(key)
+						}
+					}
 					if (cam) {
 						cam.once('camerafadeoutcomplete', () => {
-							this.scene.start(key)
+							startScene()
 						})
 						cam.fadeOut(zone.getData('fadeDuration'), 0, 0, 0)
 					} else {
-						this.scene.start(key)
+						startScene()
 					}
 				}, null, this)
 			})
 		}
 		const entityLayer = this.topdown.map.getObjectLayer('enemies')
 		if (entityLayer && Array.isArray(entityLayer.objects)) {
-			console.log('[BaseScene] Loaded entity objects:', entityLayer.objects)
 			entityLayer.objects.filter((obj) => obj.type === 'Slime').forEach((obj) => {
 				const width = (obj.width || 0) * this.gameScale
 				const height = (obj.height || 0) * this.gameScale
@@ -1570,17 +1805,17 @@ export default class BaseScene extends Phaser.Scene {
 		const shadow = this.add.ellipse(width / 2, height * 0.65, width * 0.55, 6 * this.gameScale, 0x000000, 0.25)
 		shadow.setOrigin(0.5)
 		let enemyImage = null
-			if (config.textureKey) {
-				enemyImage = this.add.sprite(width / 2, height * 0.45, config.textureKey, config.frame ?? 0)
-				enemyImage.setOrigin(0.5)
-				const naturalWidth = enemyImage.width || 1
-				const naturalHeight = enemyImage.height || 1
-				const maxWidth = width * 0.55
-				const maxHeight = height * 0.45
-				const baseScale = Math.min(maxWidth / naturalWidth, maxHeight / naturalHeight)
-				const imageScale = (config.imageScale ?? 1) * baseScale
-				enemyImage.setScale(imageScale)
-			}
+		if (config.textureKey) {
+			enemyImage = this.add.sprite(width / 2, height * 0.45, config.textureKey, config.frame ?? 0)
+			enemyImage.setOrigin(0.5)
+			const naturalWidth = enemyImage.width || 1
+			const naturalHeight = enemyImage.height || 1
+			const maxWidth = width * 0.55
+			const maxHeight = height * 0.45
+			const baseScale = Math.min(maxWidth / naturalWidth, maxHeight / naturalHeight)
+			const imageScale = (config.imageScale ?? 1) * baseScale
+			enemyImage.setScale(imageScale)
+		}
 		const elements = [background, inset, shadow]
 		if (enemyImage) {
 			elements.push(enemyImage)
@@ -1652,7 +1887,6 @@ export default class BaseScene extends Phaser.Scene {
 		if (!config) return
 		const spawnCount = this.normalizeEnemyCardCount(config.count ?? 5)
 		this.deployFriendlySpawnerFromCard(config, spawnCount)
-		console.log(`[Enemy Deck] Spawning ${spawnCount} allied slimes from card: ${config.label || config.key || 'unknown'}`)
 		this.animateEnemyCardUse(card, () => {
 			this.removeEnemyCard(card)
 		})

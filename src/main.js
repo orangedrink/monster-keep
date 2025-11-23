@@ -4,6 +4,7 @@ import TitleWorldScene from './TitleScene'
 import BasicConsoleScene from './BasicConsoleScene'
 import ArkanoidScene from './ArkanoidScene'
 import CastleScene from './CastleScene'
+import BreakerScene from './BreakerScene'
 
 const config = {
 	type: Phaser.AUTO,
@@ -24,7 +25,7 @@ const config = {
 		},
 	},
 	antialias: false,
-	scene: [TitleWorldScene, BasicConsoleScene, ArkanoidScene, CastleScene],
+	scene: [TitleWorldScene, BreakerScene, BasicConsoleScene],
 }
 
 export default new Phaser.Game(config)
